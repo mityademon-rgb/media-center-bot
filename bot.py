@@ -1,11 +1,11 @@
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 import os
-import openai
+from openai import OpenAI
 
-# Токен и OpenAI ключ из переменных
+# Токен и OpenAI клиент
 bot = telebot.TeleBot(os.environ['TELEGRAM_TOKEN'])
-openai.api_key = os.environ['OPENAI_API_KEY']
+client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
 
 # Чек-листы (точно как вы дали)
 checklist_text_ai = """
@@ -63,7 +63,7 @@ checklist_shooting = """
 ✅ Делайте несколько дублей важных моментов.
 """
 
-# Главное меню с новыми кнопками
+# Главное меню
 main_menu = ReplyKeyboardMarkup(resize_keyboard=True)
 main_menu.add(KeyboardButton('Чек-лист для написания закадрового текста с ИИ'))
 main_menu.add(KeyboardButton('Чек-лист для съемки репортажа'))
@@ -84,20 +84,9 @@ def handle_message(message):
         bot.send_message(message.chat.id, checklist_shooting)
         return
 
-    # Иначе — отправляем в ИИ для ответа
+    # Иначе — отправляем в ИИ
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",  # Дешёвая модель
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Ты учитель медиацентра для школьников и студентов. Отвечай кратко, напоминая материал из уроков по видеосъёмке, журналистике, написанию текстов, нейросетям. Будь полезным, но не давай опасных советов. Если вопрос не по теме — скажи 'Это не по нашим урокам, спроси о видеосъёмке или нейросетях!'."},
-                {"role": "user", "content": text}
-            ]
-        )
-        ai_answer = response['choices'][0]['message']['content']
-        bot.send_message(message.chat.id, ai_answer)
-    except Exception as e:
-        bot.send_message(message.chat.id, 'Извини, ошибка с ИИ. Попробуй позже или задай вопрос по-другому.')
-
-# Запуск polling
-if __name__ == '__main__':
-    bot.polling(none_stop=True)
+                {"role
