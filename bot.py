@@ -71,7 +71,7 @@ main_menu.add(KeyboardButton('Чек-лист для съемки репорта
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, 'Привет! Я бот медиацентра. Выбери чек-лист или задай вопрос по урокам:', reply_markup=main_menu)
+    bot.send_message(message.chat.id, 'Привет! Я бот медиацентра "Марфино". В чем я могу тебе помочь: напомню термины и правила, если ты что то забыл. помогу с усвоением нового материала. Просто спроси что не понятно и я постараюсь ответить. Выбери чек-лист или задай вопрос по урокам:', reply_markup=main_menu)
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
