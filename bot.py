@@ -1,7 +1,7 @@
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 import os
-from openai import OpenAI
+from openai import OpenAIhttps://github.com/mityademon-rgb/media-center-bot/blob/main/bot.py
 import sqlite3
 
 # Токен и OpenAI клиент
