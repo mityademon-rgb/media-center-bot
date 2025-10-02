@@ -3,6 +3,7 @@ from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 import os
 from openai import OpenAI
 import sqlite3
+from datetime import datetime
 
 # Токен и OpenAI клиент
 bot = telebot.TeleBot(os.environ['TELEGRAM_TOKEN'])
@@ -17,6 +18,156 @@ cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS users
                   (user_id INTEGER PRIMARY KEY, name TEXT, experience TEXT, interests TEXT)''')
 conn.commit()
+
+# ============== НОВОЕ: таблицы для недельных заданий/очков/квизов ==============
+def sql(q, args=(), many=False):
+    c = conn.cursor()
+    c.execute(q, args)
+    conn.commit()
+    return c.fetchall() if many else c.fetchone()
+
+def init_weekly_db():
+    sql("""CREATE TABLE IF NOT EXISTS weekly_meta(
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )""")
+    sql("""CREATE TABLE IF NOT EXISTS weekly_tasks(
+        week_id TEXT PRIMARY KEY,
+        kind TEXT,                -- 'media' | 'quiz' | 'minitest'
+        title TEXT,
+        description TEXT,
+        media_url TEXT,
+        deadline TEXT,
+        quiz_q TEXT,
+        quiz_a TEXT,
+        quiz_b TEXT,
+        quiz_c TEXT,
+        quiz_correct INTEGER      -- 0,1,2
+    )""")
+    sql("""CREATE TABLE IF NOT EXISTS weekly_points(
+        user_id INTEGER,
+        week_id TEXT,
+        points INTEGER DEFAULT 0,
+        PRIMARY KEY(user_id, week_id)
+    )""")
+    sql("""CREATE TABLE IF NOT EXISTS weekly_submissions(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        week_id TEXT,
+        file_id TEXT,
+        file_type TEXT,
+        caption TEXT,
+        ts TEXT
+    )""")
+    sql("""CREATE TABLE IF NOT EXISTS weekly_awards(
+        user_id INTEGER,
+        week_id TEXT,
+        type TEXT,                -- 'media','quiz','minitest'
+        PRIMARY KEY(user_id, week_id, type)
+    )""")
+    sql("""CREATE TABLE IF NOT EXISTS weekly_test_states(
+        user_id INTEGER,
+        week_id TEXT,
+        q_index INTEGER DEFAULT 0,
+        score INTEGER DEFAULT 0,
+        PRIMARY KEY(user_id, week_id)
+    )""")
+
+def get_current_week():
+    row = sql("SELECT value FROM weekly_meta WHERE key='current_week'")
+    return row[0] if row else None
+
+def set_current_week(week_id: str):
+    if get_current_week() is None:
+        sql("INSERT INTO weekly_meta(key,value) VALUES('current_week',?)", (week_id,))
+    else:
+        sql("UPDATE weekly_meta SET value=? WHERE key='current_week'", (week_id,))
+
+def upsert_task(week_id, kind, title, description, media_url, deadline):
+    row = sql("SELECT week_id FROM weekly_tasks WHERE week_id=?", (week_id,))
+    if row:
+        sql("""UPDATE weekly_tasks SET kind=?,title=?,description=?,media_url=?,deadline=? WHERE week_id=?""",
+            (kind, title, description, media_url, deadline, week_id))
+    else:
+        sql("""INSERT INTO weekly_tasks(week_id,kind,title,description,media_url,deadline)
+               VALUES(?,?,?,?,?,?)""", (week_id, kind, title, description, media_url, deadline))
+
+def set_kind(kind):
+    wid = get_current_week()
+    if not wid: return False
+    sql("UPDATE weekly_tasks SET kind=? WHERE week_id=?", (kind, wid))
+    return True
+
+def set_quiz(q, a, b, c, correct_idx):
+    wid = get_current_week()
+    if not wid: return False
+    sql("""UPDATE weekly_tasks SET quiz_q=?,quiz_a=?,quiz_b=?,quiz_c=?,quiz_correct=?
+           WHERE week_id=?""", (q, a, b, c, correct_idx, wid))
+    return True
+
+def get_task(week_id):
+    return sql("""SELECT week_id,kind,title,description,media_url,deadline,
+                         quiz_q,quiz_a,quiz_b,quiz_c,quiz_correct
+                  FROM weekly_tasks WHERE week_id=?""", (week_id,))
+
+def add_points(user_id, week_id, pts):
+    row = sql("SELECT points FROM weekly_points WHERE user_id=? AND week_id=?", (user_id, week_id))
+    if row:
+        sql("UPDATE weekly_points SET points=points+? WHERE user_id=? AND week_id=?", (pts, user_id, week_id))
+    else:
+        sql("INSERT INTO weekly_points(user_id,week_id,points) VALUES(?,?,?)", (user_id, week_id, pts))
+
+def get_points(user_id, week_id):
+    row = sql("SELECT points FROM weekly_points WHERE user_id=? AND week_id=?", (user_id, week_id))
+    return row[0] if row else 0
+
+def already_awarded(user_id, week_id, award_type):
+    return sql("SELECT 1 FROM weekly_awards WHERE user_id=? AND week_id=? AND type=?",
+               (user_id, week_id, award_type)) is not None
+
+def mark_awarded(user_id, week_id, award_type):
+    sql("INSERT OR IGNORE INTO weekly_awards(user_id,week_id,type) VALUES(?,?,?)", (user_id, week_id, award_type))
+
+def top_week(week_id, limit=10):
+    return sql("""SELECT user_id, points FROM weekly_points
+                  WHERE week_id=?
+                  ORDER BY points DESC, user_id ASC
+                  LIMIT ?""", (week_id, limit), many=True)
+
+def format_task_text(row):
+    _, kind, title, descr, media, deadline, qq, qa, qb, qc, cor = row
+    t = [f"📅 Задание недели ({kind or 'не задано'})\n\n🧩 {title or '—'}\n\n{descr or '—'}"]
+    if media: t.append(f"🔗 Материалы: {media}")
+    if deadline: t.append(f"⏳ Дедлайн: {deadline}")
+    if kind == 'media':
+        t.append("\nОтправь фото/видео с подписью #challenge — зачтём участие (+5 очков за первое).")
+    if kind == 'quiz' and qq:
+        t.append("\n🧠 Квиз доступен командой /quiz")
+    if kind == 'minitest':
+        t.append("\n📝 Мини-тест доступен командой /minitest")
+    return "\n".join(t)
+
+# Очки по умолчанию
+POINTS_MEDIA_FIRST = 5
+POINTS_QUIZ_RIGHT = 3
+POINTS_MINITEST = {3:5, 2:3, 1:1, 0:0}
+
+# Мини-тест (3 вопроса) — дефолтный набор (можно потом расширять)
+MINITEST_QUESTIONS = [
+    ("Что такое 'правило третей'?",
+     ["A: Ставим объект на пересечениях сетки 3x3", "B: Снимаем три дубля", "C: Всегда центр"], 'A'),
+    ("Какой свет делает лицо 'страшным'?",
+     ["A: Сбоку", "B: Сверху", "C: Снизу"], 'C'),
+    ("Что лучше — зумить или подойти ближе?",
+     ["A: Зумить", "B: Подойти ближе", "C: Не важно"], 'B'),
+]
+
+def users_all_ids():
+    cursor.execute("SELECT user_id FROM users")
+    return [r[0] for r in cursor.fetchall()]
+
+init_weekly_db()
+# ================================================================================
 
 # Чек-листы (как раньше)
 checklist_text_ai = """
@@ -113,7 +264,7 @@ video_questions = [
 
 # Вопросы для теста по журналистике (правильные: C, B, A, C, B)
 journalism_questions = [
-    ("Вопрос 1/5: Что входит в правило 5W для статьи?", ['A: Who, What, When, Where, Why', 'B: Только Who и What', 'C: Who, What, When, Where, Why'], 'C'),  # Правильный C, но текст A тот же — фикс: сделал A неверным
+    ("Вопрос 1/5: Что входит в правило 5W для статьи?", ['A: Who, What, When, Where, Why', 'B: Только Who и What', 'C: Who, What, When, Where, Why'], 'C'),
     ("Вопрос 2/5: Как писать заголовок для репортажа?", ['A: Длинный и скучный', 'B: Краткий и привлекательный', 'C: Без ключевых слов'], 'B'),
     ("Вопрос 3/5: Что такое закадровый текст?", ['A: Голос за кадром, описывающий событие', 'B: Только интервью', 'C: Текст на экране'], 'A'),
     ("Вопрос 4/5: Как подготовиться к интервью?", ['A: Не думать о вопросах', 'B: Задать любые вопросы', 'C: Составить список вопросов заранее'], 'C'),
@@ -129,6 +280,291 @@ def is_user_in_db(user_id):
 def show_menu_and_greeting(message):
     user_id = message.chat.id
     bot.send_message(user_id, 'Йо, креативный гений! Я твой супер-помощник в медиацентре Марфино. Здесь собрана целая банда помощников: чек-листы для съёмки и текстов, тесты на уровень, ссылки на полезные ресурсы и курсы. Смотри в меню ниже! ИИ подберёт для тебя правильный ответ с небольшой задержкой, а если не получится — подключит преподавателя. Помни, наша с тобой цель — снимать умопомрачительные видосики, которые собирают море лайков и репостов. Давай творить шедевры! 🎥🔥', reply_markup=main_menu)
+
+# ======================== НОВОЕ: команды недели (учитель/ученики) ========================
+
+@bot.message_handler(commands=['week'])
+def cmd_week(message):
+    wid = get_current_week()
+    if not wid:
+        bot.send_message(message.chat.id, "Пока нет активного задания недели. Учитель задаёт его командой /setweek")
+        return
+    row = get_task(wid)
+    if not row:
+        bot.send_message(message.chat.id, "Задание недели ещё не настроено.")
+        return
+    bot.send_message(message.chat.id, format_task_text(row))
+
+@bot.message_handler(commands=['myrank'])
+def cmd_myrank(message):
+    wid = get_current_week()
+    if not wid:
+        bot.send_message(message.chat.id, "Сейчас нет активной недели.")
+        return
+    pts = get_points(message.from_user.id, wid)
+    bot.send_message(message.chat.id, f"👤 Твой счёт за {wid}: {pts} очк.")
+
+@bot.message_handler(commands=['rank'])
+def cmd_rank(message):
+    wid = get_current_week()
+    if not wid:
+        bot.send_message(message.chat.id, "Сейчас нет активной недели.")
+        return
+    rows = top_week(wid, 10)
+    if not rows:
+        bot.send_message(message.chat.id, f"Пока нет участников за {wid}. Будь первым!")
+        return
+    medals = ["🥇","🥈","🥉"]
+    lines = []
+    for i,(uid,pts) in enumerate(rows, start=1):
+        mark = medals[i-1] if i<=3 else f"{i}."
+        lines.append(f"{mark} ID {uid} — {pts} очк.")
+    bot.send_message(message.chat.id, f"🏆 Топ-10 за {wid}:\n" + "\n".join(lines))
+
+# Учитель: задать задание недели (текст, ссылка и т.п.)
+@bot.message_handler(commands=['setweek'])
+def cmd_setweek(message):
+    if message.chat.id != ADMIN_ID:
+        bot.send_message(message.chat.id, "Эта команда только для учителя.")
+        return
+    text = message.text[len('/setweek'):].strip()
+    if not text:
+        bot.send_message(message.chat.id,
+            "Формат:\n/setweek 2025-W40 | Название | Описание | https://ссылка | до субботы\n"
+            "После этого задай тип задания: /kind media или /kind quiz или /kind minitest")
+        return
+    parts = [p.strip() for p in text.split('|')]
+    if len(parts) < 3:
+        bot.send_message(message.chat.id, "Нужно минимум 3 части: WEEK_ID | Название | Описание | [Ссылка] | [Дедлайн]")
+        return
+    week_id = parts[0]
+    title = parts[1]
+    descr = parts[2]
+    link = parts[3] if len(parts)>=4 else ""
+    deadline = parts[4] if len(parts)>=5 else ""
+    # по умолчанию kind=media (можно сменить /kind ...)
+    upsert_task(week_id, 'media', title, descr, link, deadline)
+    set_current_week(week_id)
+    bot.send_message(message.chat.id, f"✅ Установлено задание недели {week_id}.\nТип: media (можно сменить /kind quiz|minitest)\n\n"
+                                      f"{format_task_text(get_task(week_id))}")
+
+@bot.message_handler(commands=['kind'])
+def cmd_kind(message):
+    if message.chat.id != ADMIN_ID:
+        bot.send_message(message.chat.id, "Эта команда только для учителя.")
+        return
+    text = message.text.strip().split()
+    if len(text)<2 or text[1] not in ('media','quiz','minitest'):
+        bot.send_message(message.chat.id, "Используй: /kind media  или  /kind quiz  или  /kind minitest")
+        return
+    if set_kind(text[1]):
+        bot.send_message(message.chat.id, f"✅ Тип задания установлен: {text[1]}")
+    else:
+        bot.send_message(message.chat.id, "Сначала задай неделю: /setweek ...")
+
+# Учитель: разослать описание недели всем
+@bot.message_handler(commands=['sendweek'])
+def cmd_sendweek(message):
+    if message.chat.id != ADMIN_ID:
+        bot.send_message(message.chat.id, "Эта команда только для учителя.")
+        return
+    wid = get_current_week()
+    if not wid:
+        bot.send_message(message.chat.id, "Нет активной недели. /setweek")
+        return
+    row = get_task(wid)
+    if not row:
+        bot.send_message(message.chat.id, "Задание недели ещё не настроено.")
+        return
+    text = "🎮 Новое задание недели!\n\n" + format_task_text(row)
+    ids = users_all_ids()
+    sent = 0
+    for uid in ids:
+        try:
+            bot.send_message(uid, text)
+            sent += 1
+        except:
+            pass
+    bot.send_message(message.chat.id, f"Готово! Отправлено {sent} ученикам.")
+
+# Учитель: начислить очки вручную
+@bot.message_handler(commands=['award'])
+def cmd_award(message):
+    if message.chat.id != ADMIN_ID:
+        bot.send_message(message.chat.id, "Эта команда только для учителя.")
+        return
+    parts = message.text.strip().split()
+    if len(parts)<3:
+        bot.send_message(message.chat.id, "Формат: /award <user_id> <очки>")
+        return
+    try:
+        uid = int(parts[1]); pts = int(parts[2])
+    except:
+        bot.send_message(message.chat.id, "user_id и очки должны быть числами")
+        return
+    wid = get_current_week()
+    if not wid:
+        bot.send_message(message.chat.id, "Нет активной недели. /setweek")
+        return
+    add_points(uid, wid, pts)
+    bot.send_message(message.chat.id, f"✅ Начислено {pts} очков пользователю ID {uid} за {wid}.")
+
+# Учитель: подвести итоги недели (ТОП и победитель)
+@bot.message_handler(commands=['summary'])
+def cmd_summary(message):
+    if message.chat.id != ADMIN_ID:
+        bot.send_message(message.chat.id, "Эта команда только для учителя.")
+        return
+    wid = get_current_week()
+    if not wid:
+        bot.send_message(message.chat.id, "Нет активной недели.")
+        return
+    rows = top_week(wid, 10)
+    if not rows:
+        bot.send_message(message.chat.id, f"За {wid} никто не участвовал.")
+        return
+    medals = ["🥇","🥈","🥉"]
+    lines = []
+    for i,(uid,pts) in enumerate(rows, start=1):
+        mark = medals[i-1] if i<=3 else f"{i}."
+        lines.append(f"{mark} ID {uid} — {pts} очк.")
+    text = f"🎺 ИРА!!! Торжественные итоги недели {wid}\n\n" + "\n".join(lines) + "\n\n⭐ Звезда недели — ID " + str(rows[0][0]) + "!"
+    # рассылаем всем
+    ids = users_all_ids()
+    for uid in ids:
+        try:
+            bot.send_message(uid, text)
+        except:
+            pass
+    bot.send_message(message.chat.id, "Итоги разосланы. ⭐")
+
+# Квиз недели: задать вопрос (учитель) и пройти (ученики)
+@bot.message_handler(commands=['setquiz'])
+def cmd_setquiz(message):
+    if message.chat.id != ADMIN_ID:
+        bot.send_message(message.chat.id, "Эта команда только для учителя.")
+        return
+    # Формат: /setquiz Вопрос | Вариант A | Вариант B | Вариант C | 0
+    txt = message.text[len('/setquiz'):].strip()
+    parts = [p.strip() for p in txt.split('|')]
+    if len(parts) < 5:
+        bot.send_message(message.chat.id, "Формат: /setquiz Вопрос | Вариант A | Вариант B | Вариант C | индекс_правильного(0..2)")
+        return
+    q, a, b, c, idx = parts[0], parts[1], parts[2], parts[3], parts[4]
+    try:
+        idx = int(idx)
+        if idx not in (0,1,2): raise ValueError
+    except:
+        bot.send_message(message.chat.id, "Последний параметр — число 0..2 (индекс правильного).")
+        return
+    if not set_quiz(q, a, b, c, idx):
+        bot.send_message(message.chat.id, "Сначала задай неделю: /setweek ... и тип: /kind quiz")
+        return
+    bot.send_message(message.chat.id, "✅ Квиз сохранён. Ученики могут пройти командой /quiz")
+
+@bot.message_handler(commands=['quiz'])
+def cmd_quiz(message):
+    wid = get_current_week()
+    if not wid:
+        bot.send_message(message.chat.id, "Сейчас нет активной недели.")
+        return
+    row = get_task(wid)
+    if not row or row[1] != 'quiz' or not row[6]:
+        bot.send_message(message.chat.id, "Квиз недели не настроен. Попроси учителя /kind quiz и /setquiz ...")
+        return
+    _,_,_,_,_,_, qq, qa, qb, qc, correct = row
+    try:
+        bot.send_poll(
+            message.chat.id,
+            question="🧠 Квиз недели: " + qq,
+            options=[qa, qb, qc],
+            type="quiz",
+            correct_option_id=correct,
+            is_anonymous=False,
+            explanation="Проверь наш урок — там есть подсказки 😉"
+        )
+    except Exception as e:
+        bot.send_message(message.chat.id, f"Не удалось отправить квиз: {e}")
+
+# Получаем ответы на квизы и начисляем очки
+@bot.poll_answer_handler()
+def handle_poll_answer(poll_answer):
+    user_id = poll_answer.user.id
+    option_ids = poll_answer.option_ids
+    if not option_ids:
+        return
+    wid = get_current_week()
+    if not wid:
+        return
+    row = get_task(wid)
+    if not row or row[1] != 'quiz' or row[10] is None:
+        return
+    correct = row[10]
+    chosen = option_ids[0]
+    if chosen == correct and not already_awarded(user_id, wid, 'quiz'):
+        add_points(user_id, wid, POINTS_QUIZ_RIGHT)
+        mark_awarded(user_id, wid, 'quiz')
+        try:
+            bot.send_message(user_id, f"✅ Правильно! +{POINTS_QUIZ_RIGHT} очк. Посмотри /myrank")
+        except:
+            pass
+
+# Мини-тест недели (3 вопроса) — запуск
+@bot.message_handler(commands=['minitest'])
+def cmd_minitest(message):
+    wid = get_current_week()
+    if not wid:
+        bot.send_message(message.chat.id, "Сейчас нет активной недели.")
+        return
+    row = get_task(wid)
+    if not row or row[1] != 'minitest':
+        bot.send_message(message.chat.id, "На этой неделе мини-тест не активирован. Попроси учителя /kind minitest")
+        return
+    # сбрасываем прогресс
+    sql("INSERT OR REPLACE INTO weekly_test_states(user_id,week_id,q_index,score) VALUES(?,?,0,0)",
+        (message.from_user.id, wid))
+    q, opts, _ = MINITEST_QUESTIONS[0]
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    for o in opts: kb.add(KeyboardButton(o))
+    bot.send_message(message.chat.id, "📝 Мини-тест (3 вопроса). Вопрос 1/3:\n" + q, reply_markup=kb)
+
+# Приём ответов мини-теста (встраиваем в общий хендлер — он ниже ничего не ломает)
+
+# ========================= ПРИЁМ МЕДИА #challenge (для media-недели) =========================
+@bot.message_handler(content_types=['photo','video'])
+def handle_media_challenge(message):
+    caption = (message.caption or "").lower()
+    if "#challenge" not in caption:
+        return  # пусть дальше обработается твоим универсальным хендлером
+    wid = get_current_week()
+    if not wid:
+        bot.send_message(message.chat.id, "Нет активной недели. Попроси учителя /setweek")
+        return
+    row = get_task(wid)
+    if not row or row[1] != 'media':
+        bot.send_message(message.chat.id, "Сейчас активна неделя не формата «съёмка». Жми /week, чтобы узнать задание.")
+        return
+
+    if message.content_type == 'photo':
+        file_id = message.photo[-1].file_id
+        ftype = 'photo'
+    else:
+        file_id = message.video.file_id
+        ftype = 'video'
+
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    sql("""INSERT INTO weekly_submissions(user_id,week_id,file_id,file_type,caption,ts)
+           VALUES(?,?,?,?,?,?)""", (message.from_user.id, wid, file_id, ftype, message.caption or "", ts))
+
+    # первое участие — очки
+    if not already_awarded(message.from_user.id, wid, 'media'):
+        add_points(message.from_user.id, wid, POINTS_MEDIA_FIRST)
+        mark_awarded(message.from_user.id, wid, 'media')
+        bot.send_message(message.chat.id, f"✅ Принято! +{POINTS_MEDIA_FIRST} очк. Посмотри /myrank")
+    else:
+        bot.send_message(message.chat.id, "✅ Принято! Работа сохранена. Очки за участие уже начислены. /myrank")
+
+# ============================ ТВОЙ ИСХОДНЫЙ КОД НИЖЕ — БЕЗ ИЗМЕНЕНИЙ ============================
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -192,7 +628,39 @@ def handle_message(message):
     user_id = message.chat.id
     text = message.text.strip()
 
-    # Обработка onboard по состоянию
+    # ==== Обработка мини-теста (если идёт) ====
+    wid = get_current_week()
+    if wid:
+        st = sql("SELECT q_index,score FROM weekly_test_states WHERE user_id=? AND week_id=?", (user_id, wid))
+        if st:
+            q_index, score = st
+            # ожидаем ответ в формате "A: ..." / "B: ..." / "C: ..."
+            if text and text[0] in ('A','B','C'):
+                correct = MINITEST_QUESTIONS[q_index][2]
+                if text[0] == correct:
+                    score += 1
+                q_index += 1
+                if q_index < 3:
+                    sql("UPDATE weekly_test_states SET q_index=?,score=? WHERE user_id=? AND week_id=?",
+                        (q_index, score, user_id, wid))
+                    q, opts, _ = MINITEST_QUESTIONS[q_index]
+                    kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+                    for o in opts: kb.add(KeyboardButton(o))
+                    bot.send_message(user_id, f"Вопрос {q_index+1}/3:\n{q}", reply_markup=kb)
+                    return
+                else:
+                    # завершили тест
+                    sql("DELETE FROM weekly_test_states WHERE user_id=? AND week_id=?", (user_id, wid))
+                    if not already_awarded(user_id, wid, 'minitest'):
+                        pts = POINTS_MINITEST.get(score, 0)
+                        add_points(user_id, wid, pts)
+                        mark_awarded(user_id, wid, 'minitest')
+                        bot.send_message(user_id, f"✅ Тест завершён: {score}/3. +{pts} очк. /myrank")
+                    else:
+                        bot.send_message(user_id, f"Тест завершён: {score}/3. Очки уже начислялись ранее. /myrank")
+                    return
+
+    # ==== ТВОЙ ОНБОРДИНГ ====
     if user_id in user_states and 'waiting_' in user_states[user_id]:
         state = user_states[user_id]
 
@@ -258,7 +726,7 @@ def handle_message(message):
 
         return
 
-    # Обработка тестов
+    # ==== ТВОИ ТЕСТЫ ====
     if text in ['Тест по видеосъёмке', 'Тест по журналистике']:
         if not is_user_in_db(user_id):
             bot.send_message(user_id, 'Сначала зарегистрируйся! Напиши /start и заполни анкету.')
@@ -277,7 +745,6 @@ def handle_message(message):
         bot.send_message(user_id, q, reply_markup=options_menu)
         return
 
-    # Обработка ответов на тест
     if user_id in user_states and 'test_' in user_states[user_id]:
         state = user_states[user_id]
         test_type, q_num = state.split('_q')
@@ -311,7 +778,7 @@ def handle_message(message):
 
         return
 
-    # Обработка кнопок меню
+    # ==== Твои кнопки меню ====
     if text == 'Чек-лист для написания закадрового текста с ИИ':
         bot.send_message(user_id, checklist_text_ai)
     elif text == 'Чек-лист для съемки репортажа':
