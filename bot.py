@@ -1,7 +1,7 @@
 import telebot
 import os
 
-# Токен бота
+# Токен бота 
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
