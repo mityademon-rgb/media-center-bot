@@ -1,11 +1,10 @@
 """
 БЛОК 1: ЛОГИКА РЕГИСТРАЦИИ
-Шаги: Имя → Никнейм → Возраст → Обращение → QR-инструкция
+Шаги: Имя → Никнейм → Возраст → QR-инструкция
 """
 import re
 from datetime import datetime
 from database import get_user, create_user, update_user, get_user_display_name
-from keyboards import nickname_preference_keyboard
 
 def handle_start_registration(bot, message):
     """Начать регистрацию"""
@@ -161,47 +160,13 @@ def handle_age(bot, message):
         )
         return
     
-    # Сохраняем
+    # Сохраняем (регистрация завершена - шаг 5!)
     user = get_user(user_id)
     update_user(user_id, {
         'age': age,
-        'registration_step': 4
+        'use_nickname': False,  # По умолчанию по имени
+        'registration_step': 5  # Регистрация завершена!
     })
-    
-    # Следующий шаг: выбор обращения
-    keyboard = nickname_preference_keyboard(
-        user.get('first_name'),
-        user.get('nickname')
-    )
-    
-    bot.send_message(
-        message.chat.id,
-        "Окей! 👌\n\n"
-        "💬 Как тебе больше зайдёт - чтобы я к тебе обращался **по имени** или **по нику**?\n\n"
-        "Выбирай! 👇",
-        reply_markup=keyboard,
-        parse_mode='Markdown'
-    )
-
-def handle_nickname_preference(bot, call):
-    """Шаг 4: Выбор обращения (callback)"""
-    user_id = call.from_user.id
-    choice = call.data  # "use_name" или "use_nickname"
-    
-    use_nickname = (choice == 'use_nickname')
-    
-    # Сохраняем
-    update_user(user_id, {
-        'use_nickname': use_nickname,
-        'registration_step': 5
-    })
-    
-    # Удаляем клавиатуру
-    bot.edit_message_reply_markup(
-        call.message.chat.id,
-        call.message.message_id,
-        reply_markup=None
-    )
     
     # Инструкция про QR-код
     qr_text = """
@@ -235,9 +200,7 @@ https://dk.mosreg.ru/dk/marfino/workshops/804ce64a-bcbd-48ad-80cc-630f23d0c9dd
 Поехали! Жми /start и погнали! 🚀
 """
     
-    bot.send_message(call.message.chat.id, qr_text, parse_mode='Markdown')
-    
-    bot.answer_callback_query(call.id, "✅ Отлично!")
+    bot.send_message(message.chat.id, qr_text, parse_mode='Markdown')
 
 def handle_qr_photo(bot, message):
     """Обработка фото QR-кода"""
@@ -310,3 +273,9 @@ https://dk.mosreg.ru/dk/marfino/workshops/804ce64a-bcbd-48ad-80cc-630f23d0c9dd
             print(f"⚠️ Не удалось отправить напоминание {user_id}: {e}")
     
     print(f"✅ Отправлено {sent_count} напоминаний о QR-коде")
+
+
+# Заглушки для обратной совместимости (если где-то импортируются)
+def handle_nickname_preference(bot, call):
+    """Заглушка - больше не используется"""
+    pass
