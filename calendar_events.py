@@ -169,25 +169,6 @@ EVENTS = {
     }
 }
 
-    
-    'event_2': {
-        'id': 'event_2',
-        'type': 'masterclass',
-        'title': 'Мастер-класс: Интервью с экспертом',
-        'description': 'Учимся брать интервью у профессионалов',
-        'location': 'Медиацентр Марфино, Студия 2',
-        'date': '2024-11-15',
-        'time': '16:00',
-        'duration': '2 часа',
-        'participants_needed': 15,
-        'participants': [],
-        'teacher': 'Анна Петрова',
-        'guest': 'Иван Сидоров (журналист)',
-        'notes': 'Подготовь 3 вопроса заранее',
-        'active': True
-    }
-}
-
 # ========== ФУНКЦИИ ==========
 
 def get_next_classes(weeks=2):
@@ -209,7 +190,7 @@ def get_next_classes(weeks=2):
     
     return classes
 
-def get_upcoming_events(days=14):
+def get_upcoming_events(days=30):
     """Получить предстоящие мероприятия на N дней"""
     upcoming = []
     today = datetime.now()
@@ -221,10 +202,9 @@ def get_upcoming_events(days=14):
         event_date = datetime.strptime(event['date'], '%Y-%m-%d')
         days_diff = (event_date - today).days
         
-        if 0 <= days_diff <= days:
+        if -1 <= days_diff <= days:
             upcoming.append(event)
     
-    # Сортируем по дате
     upcoming.sort(key=lambda x: x['date'])
     
     return upcoming
@@ -241,16 +221,13 @@ def register_for_event(user_id, event_id):
     
     participants = event.get('participants', [])
     
-    # Проверяем, не записан ли уже
     if user_id in participants:
         return {'success': False, 'reason': 'already_registered'}
     
-    # Проверяем лимит участников
     max_participants = event.get('participants_needed', 999)
     if len(participants) >= max_participants:
         return {'success': False, 'reason': 'event_full'}
     
-    # Записываем
     participants.append(user_id)
     event['participants'] = participants
     
@@ -276,44 +253,65 @@ def unregister_from_event(user_id, event_id):
     
     return {'success': True}
 
+def get_today_events():
+    """Получить события сегодня"""
+    today = datetime.now().strftime('%Y-%m-%d')
+    today_events = []
+    
+    for event in EVENTS.values():
+        if event.get('date') == today and event.get('active'):
+            today_events.append(event)
+    
+    return today_events
+
+def get_week_schedule():
+    """Расписание на неделю вперёд"""
+    events = get_upcoming_events(days=7)
+    
+    schedule = {}
+    for event in events:
+        date = event['date']
+        if date not in schedule:
+            schedule[date] = []
+        schedule[date].append(event)
+    
+    return schedule
+
 def format_schedule_week(user_id=None):
     """Форматировать расписание на неделю"""
-    classes = get_next_classes(weeks=1)
     events = get_upcoming_events(days=7)
+    
+    if not events:
+        return "📅 *РАСПИСАНИЕ НА НЕДЕЛЮ*\n\nНа этой неделе событий нет 🤷‍♂️\n\nСледи за обновлениями!"
     
     text = "📅 *РАСПИСАНИЕ НА НЕДЕЛЮ*\n\n"
     
-    # Занятия
-    text += "📚 *ЗАНЯТИЯ:*\n"
-    for cls in classes:
-        text += f"{cls['day_name']}, {cls['date_formatted']} в {cls['time']}\n"
+    current_date = None
+    for event in events:
+        event_date = datetime.strptime(event['date'], '%Y-%m-%d')
+        date_str = event_date.strftime('%d.%m')
+        day_name = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС'][event_date.weekday()]
+        
+        if event['date'] != current_date:
+            if current_date is not None:
+                text += "\n"
+            text += f"📆 *{day_name}, {date_str}*\n"
+            current_date = event['date']
+        
+        event_type = EVENT_TYPES.get(event['type'], {})
+        emoji = event_type.get('emoji', '📌')
+        
+        text += f"{emoji} {event['time']} - {event['title']}\n"
+        text += f"   📍 {event['location']}\n"
+        
+        participants = event.get('participants', [])
+        if user_id and user_id in participants:
+            text += f"   ✅ Ты записан!\n"
+        
+        text += f"   💰 +{event_type.get('xp', 50)} XP\n"
     
-    text += f"\n💰 За посещение: +50 XP каждое\n"
-    
-    # Мероприятия
-    if events:
-        text += "\n━━━━━━━━━━━━━━━━━━━━\n\n"
-        for event in events:
-            event_type = EVENT_TYPES.get(event['type'], {})
-            emoji = event_type.get('emoji', '📌')
-            
-            event_date = datetime.strptime(event['date'], '%Y-%m-%d')
-            date_str = event_date.strftime('%d.%m')
-            day_name = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС'][event_date.weekday()]
-            
-            text += f"{emoji} *{event['title']}*\n"
-            text += f"{day_name}, {date_str} в {event['time']}\n"
-            text += f"📍 {event['location']}\n"
-            
-            participants = event.get('participants', [])
-            max_p = event.get('participants_needed', 0)
-            
-            if user_id in participants:
-                text += f"✅ Ты записан!\n"
-            else:
-                text += f"👥 Мест: {len(participants)}/{max_p}\n"
-            
-            text += f"💰 +{event_type.get('xp', 100)} XP\n\n"
+    text += "\n━━━━━━━━━━━━━━━━━━━━\n"
+    text += "Записывайся на события! 🔥"
     
     return text
 
@@ -321,7 +319,7 @@ def format_event_details(event_id, user_id=None):
     """Детальная информация о мероприятии"""
     event = get_event_by_id(event_id)
     if not event:
-        return "Мероприятие не найдено"
+        return "Мероприятие не найдено 🤷‍♂️"
     
     event_type = EVENT_TYPES.get(event['type'], {})
     emoji = event_type.get('emoji', '📌')
@@ -338,25 +336,19 @@ def format_event_details(event_id, user_id=None):
     text += f"⏱️ *Длительность:* {event['duration']}\n"
     text += f"📍 *Место:* {event['location']}\n\n"
     
-    if event.get('teacher'):
-        text += f"👨‍🏫 *Ведущий:* {event['teacher']}\n"
-    
-    if event.get('guest'):
-        text += f"🎤 *Гость:* {event['guest']}\n"
-    
-    text += f"\n📝 *Описание:*\n{event['description']}\n\n"
+    text += f"📝 *Описание:*\n{event['description']}\n\n"
     
     participants = event.get('participants', [])
     max_p = event.get('participants_needed', 0)
     text += f"👥 *Участники:* {len(participants)}/{max_p}\n\n"
     
     if event.get('notes'):
-        text += f"ℹ️ *Важно:*\n{event['notes']}\n\n"
+        text += f"ℹ️ *Важная инфа:*\n{event['notes']}\n\n"
     
-    text += f"💰 *Награда:* +{event_type.get('xp', 100)} XP\n\n"
+    text += f"💰 *Награда:* +{event_type.get('xp', 50)} XP\n\n"
     
-    if user_id in participants:
-        text += "✅ *Ты записан на это мероприятие!*"
+    if user_id and user_id in participants:
+        text += "✅ *Ты записан на это событие!*"
     else:
         if len(participants) >= max_p:
             text += "❌ *Мест нет (набор завершён)*"
@@ -364,3 +356,18 @@ def format_event_details(event_id, user_id=None):
             text += "Запишись прямо сейчас! 👇"
     
     return text
+
+def get_days_until_event(event):
+    """Сколько дней до события"""
+    event_date = datetime.strptime(event['date'], '%Y-%m-%d')
+    today = datetime.now()
+    delta = (event_date - today).days
+    
+    if delta < 0:
+        return "прошло"
+    elif delta == 0:
+        return "сегодня"
+    elif delta == 1:
+        return "завтра"
+    else:
+        return f"через {delta} дней"
