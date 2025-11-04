@@ -37,7 +37,7 @@ def save_users(users):
     # Выводим JSON для копирования в переменную окружения
     users_json = json.dumps(users, ensure_ascii=False)
     print(f"\n📋 СКОПИРУЙ ЭТО В ПЕРЕМЕННУЮ USERS_DATABASE:")
-    print(f"{users_json[:200]}..." if len(users_json) > 200 else users_json)
+    print(f"{users_json[:500]}..." if len(users_json) > 500 else users_json)
     print()
 
 def get_user(user_id):
@@ -110,3 +110,48 @@ def create_user(user_id, telegram_data):
     
     save_user(user_id, user_data)
     return user_data
+
+# ========== ФУНКЦИИ ДЛЯ АДМИНКИ ==========
+
+def get_statistics():
+    """Получить общую статистику"""
+    users = get_all_users()
+    
+    total_users = len(users)
+    registered_users = sum(1 for u in users.values() if u.get('registration_step', 0) >= 6)
+    waiting_qr = sum(1 for u in users.values() if u.get('registration_step') == 5 and not u.get('qr_code'))
+    total_xp = sum(u.get('xp', 0) for u in users.values())
+    
+    return {
+        'total_users': total_users,
+        'registered_users': registered_users,
+        'waiting_qr': waiting_qr,
+        'in_registration': total_users - registered_users - waiting_qr,
+        'total_xp': total_xp
+    }
+
+def get_recent_users(limit=5):
+    """Получить последних зарегистрированных"""
+    users = get_all_users()
+    
+    # Фильтруем полностью зарегистрированных
+    registered = [
+        u for u in users.values() 
+        if u.get('registration_step', 0) >= 6 and u.get('registration_date')
+    ]
+    
+    # Сортируем по дате регистрации
+    registered.sort(key=lambda x: x.get('registration_date', ''), reverse=True)
+    
+    return registered[:limit]
+
+def get_waiting_qr_users():
+    """Получить пользователей ожидающих проверки QR"""
+    users = get_all_users()
+    
+    waiting = [
+        u for u in users.values()
+        if u.get('registration_step') == 5 and not u.get('qr_code')
+    ]
+    
+    return waiting
