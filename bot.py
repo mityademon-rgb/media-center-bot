@@ -3,7 +3,7 @@
 """
 import telebot
 from config import TELEGRAM_TOKEN
-from handlers import handle_start, handle_text, handle_callback, handle_photo
+from handlers import handle_start, handle_text, handle_callback, handle_photo, handle_stat_command
 from scheduler import start_scheduler
 
 # Инициализация бота
@@ -13,6 +13,10 @@ bot = telebot.TeleBot(TELEGRAM_TOKEN)
 @bot.message_handler(commands=['start'])
 def start(message):
     handle_start(bot, message)
+
+@bot.message_handler(commands=['stat'])
+def stat(message):
+    handle_stat_command(bot, message)
 
 @bot.message_handler(content_types=['photo'])
 def photo_handler(message):
