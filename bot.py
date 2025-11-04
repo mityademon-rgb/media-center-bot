@@ -13,11 +13,8 @@ from handlers import (
     handle_add_event_command
 )
 
-# Токен бота
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-
-if not BOT_TOKEN:
-    raise ValueError("⚠️ BOT_TOKEN не найден в переменных окружения!")
+# Токен бота (прописан прямо в коде)
+BOT_TOKEN = os.getenv('BOT_TOKEN', '7868804206:AAHKvlxSGWuo3nWUVKqeFYCvAKfJwn2H4Tc')
 
 # Инициализация бота
 bot = telebot.TeleBot(BOT_TOKEN)
