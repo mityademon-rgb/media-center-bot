@@ -1,285 +1,111 @@
 """
-Обработчики команд и кнопок
+Обработчики команд и сообщений
 """
+import os
+from database import get_user, is_registered, get_user_display_name
+from registration import start_registration, handle_registration_step, handle_qr_code, handle_nickname_preference
 from keyboards import (
     main_menu, profile_menu, calendar_menu, tasks_menu, 
     cheatsheets_menu, links_menu, leaderboard_menu, back_to_main
 )
-from texts import CHEATSHEETS
-from database import is_registered, get_user, get_user_display_name
-from registration import start_registration, handle_registration_step, handle_qr_code
-from admin import handle_stat
 from gamification import get_user_stats, get_leaderboard, get_user_rank, mark_cheatsheet_viewed
+from calendar_events import format_schedule_week
 from tasks import get_active_task, format_task_message
-from calendar_events import format_schedule_week, get_upcoming_events, format_event_details
+from texts import CHEATSHEETS
+from admin import handle_stat
 
-# ========== КОМАНДА /START ==========
 def handle_start(bot, message):
+    """Обработать команду /start"""
     user_id = message.chat.id
-    user = get_user(user_id)
     
-    # НОВЫЙ ПОЛЬЗОВАТЕЛЬ - начинаем регистрацию
-    if not user:
+    # Проверяем зарегистрирован ли пользователь
+    if not is_registered(user_id):
         start_registration(bot, message)
         return
     
-    # ПРОВЕРЯЕМ ШАГ РЕГИСТРАЦИИ
-    reg_step = user.get('registration_step', 999)
-    
-    # Если пользователь в процессе регистрации (шаги 1-4)
-    if reg_step < 5:
-        bot.send_message(
-            user_id,
-            "⚠️ Эй, ты ещё не закончил регистрацию!\n\n"
-            "Продолжай отвечать на мои вопросы 👆"
-        )
-        return
-    
-    # Если ожидает QR-код (шаг 5)
-    if reg_step == 5 and not user.get('qr_code'):
-        display_name = get_user_display_name(user_id)
-        bot.send_message(
-            user_id,
-            f"Йоу, {display_name}! 👋\n\n"
-            f"Я жду твой QR-код с портала МосРег 📸\n\n"
-            f"Скинь мне фото или скрин бейджа, "
-            f"и мы сможем продолжить!\n\n"
-            f"А пока можешь юзать бота 👇",
-            reply_markup=main_menu()
-        )
-        return
-    
-    # ПОЛЬЗОВАТЕЛЬ ЗАРЕГИСТРИРОВАН - показываем главное меню
+    # Показываем главное меню
     display_name = get_user_display_name(user_id)
     
-    # Получаем статистику
     try:
         stats = get_user_stats(user_id)
-        level_text = f"📊 Твой уровень: *{stats['level']} - {stats['level_name']}*\n⭐ Опыт: {stats['xp']} XP\n\n"
+        level_text = f"📊 Уровень: *{stats['level']} - {stats['level_name']}*\n⭐ Опыт: {stats['xp']} XP\n\n"
     except:
         level_text = ""
     
     bot.send_message(
         user_id,
-        f"🎬 Йоу, {display_name}! Рад тебя видеть! 🔥\n\n"
+        f"🎬 Йоу, {display_name}!\n\n"
         f"{level_text}"
         f"Что будем делать?",
-        parse_mode='Markdown',
-        reply_markup=main_menu()
+        reply_markup=main_menu(),
+        parse_mode='Markdown'
     )
 
-# ========== ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ ==========
 def handle_text(bot, message):
+    """Обработать текстовые сообщения"""
     user_id = message.chat.id
-    user = get_user(user_id)
+    text = message.text
     
-    # ЕСЛИ ПОЛЬЗОВАТЕЛЯ НЕТ В БАЗЕ - начинаем регистрацию
-    if not user:
-        start_registration(bot, message)
-        return
-    
-    # ПРОВЕРЯЕМ ШАГ РЕГИСТРАЦИИ
-    reg_step = user.get('registration_step', 999)
-    
-    # ЕСЛИ В ПРОЦЕССЕ РЕГИСТРАЦИИ (шаги 1-4)
-    if reg_step < 5:
+    # Проверяем зарегистрирован ли пользователь
+    if not is_registered(user_id):
         handle_registration_step(bot, message)
         return
     
-    # ОБЫЧНАЯ ОБРАБОТКА СООБЩЕНИЙ
-    # (если ждёт QR - всё равно даём пользоваться ботом)
-    text = message.text
-    
-    # ========== ГЛАВНОЕ МЕНЮ ==========
-    
+    # Обработка кнопок главного меню
     if text == '⭐ Мой профиль':
-        handle_profile(bot, message)
+        show_profile(bot, user_id)
     
     elif text == '📅 Календарь':
-        handle_calendar(bot, message)
+        show_calendar(bot, user_id)
     
     elif text == '📸 Задания':
-        handle_tasks(bot, message)
+        show_tasks(bot, user_id)
     
     elif text == '📚 Шпаргалки':
-        bot.send_message(
-            message.chat.id,
-            "📚 *ШПАРГАЛКИ*\n\nВыбирай тему! 👇",
-            parse_mode='Markdown',
-            reply_markup=cheatsheets_menu()
-        )
+        show_cheatsheets(bot, user_id)
     
     elif text == '🏆 Рейтинг':
-        handle_leaderboard(bot, message)
+        show_leaderboard(bot, user_id)
     
     elif text == '🔗 Ссылки':
-        bot.send_message(
-            message.chat.id,
-            "🔗 *ПОЛЕЗНЫЕ ССЫЛКИ*\n\nКуда хочешь заглянуть? 👇",
-            parse_mode='Markdown',
-            reply_markup=links_menu()
-        )
+        show_links(bot, user_id)
     
     else:
-        bot.send_message(
-            message.chat.id,
-            "Используй кнопки меню 👇",
-            reply_markup=main_menu()
-        )
-
-# ========== ОБРАБОТЧИКИ РАЗДЕЛОВ ==========
-
-def handle_profile(bot, message):
-    """Показать профиль пользователя"""
-    user_id = message.chat.id
-    
-    try:
-        stats = get_user_stats(user_id)
-        display_name = get_user_display_name(user_id)
-        
-        # Прогресс-бар для XP
-        progress = stats['progress']
-        bar_length = 10
-        filled = int(progress / 10)
-        bar = '▓' * filled + '░' * (bar_length - filled)
-        
-        text = f"⭐ *ТВОЙ ПРОФИЛЬ*\n\n"
-        text += f"👤 {display_name}\n\n"
-        text += f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        text += f"📊 *УРОВЕНЬ:* {stats['level']} - {stats['level_name']}\n"
-        text += f"📈 *Опыт:* {stats['xp']} XP\n"
-        text += f"{bar} {progress}%\n\n"
-        
-        if stats['xp_to_next']:
-            text += f"До следующего уровня: {stats['xp_to_next']} XP\n\n"
+        # Если пользователь в процессе регистрации
+        user = get_user(user_id)
+        if user and user.get('registration_step', 0) < 5:
+            handle_registration_step(bot, message)
         else:
-            text += f"🏆 Максимальный уровень!\n\n"
-        
-        text += f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        text += f"📚 *СТАТИСТИКА:*\n\n"
-        text += f"Занятий посещено: {stats['attendance_count']}\n"
-        text += f"Мероприятий: {stats['event_count']}\n"
-        text += f"Заданий выполнено: {stats['task_count']}\n"
-        text += f"Шпаргалок изучено: {stats['cheatsheet_count']}\n"
-        text += f"Тестов пройдено: {stats['test_count']}\n"
-        
-        bot.send_message(
-            message.chat.id,
-            text,
-            parse_mode='Markdown',
-            reply_markup=profile_menu()
-        )
-    except Exception as e:
-        print(f"❌ Ошибка в handle_profile: {e}")
-        bot.send_message(
-            message.chat.id,
-            "⚠️ Произошла ошибка при загрузке профиля.\nПопробуй ещё раз!",
-            reply_markup=main_menu()
-        )
+            bot.send_message(
+                user_id,
+                "🤔 Не понял тебя. Используй кнопки меню 👇",
+                reply_markup=main_menu()
+            )
 
-def handle_calendar(bot, message):
-    """Показать календарь"""
+def handle_photo(bot, message):
+    """Обработать фото (QR-код)"""
     user_id = message.chat.id
     
-    try:
-        schedule = format_schedule_week(user_id)
-        
-        # ✅ ИСПРАВЛЕНО: Добавлена inline-клавиатура!
-        bot.send_message(
-            message.chat.id,
-            schedule,
-            parse_mode='Markdown',
-            reply_markup=calendar_menu()
-        )
-    except Exception as e:
-        print(f"❌ Ошибка в handle_calendar: {e}")
-        import traceback
-        print(traceback.format_exc())
-        bot.send_message(
-            message.chat.id,
-            "⚠️ Произошла ошибка при загрузке календаря.\nПопробуй ещё раз!",
-            reply_markup=main_menu()
-        )
-
-def handle_tasks(bot, message):
-    """Показать задания"""
-    try:
-        task = get_active_task()
-        
-        if task:
-            text = format_task_message(task)
-        else:
-            text = "📸 *ЗАДАНИЯ*\n\nСейчас нет активных заданий 🤷‍♂️\n\nСледи за обновлениями!"
-        
-        # ✅ ИСПРАВЛЕНО: Добавлена inline-клавиатура!
-        bot.send_message(
-            message.chat.id,
-            text,
-            parse_mode='Markdown',
-            reply_markup=tasks_menu()
-        )
-    except Exception as e:
-        print(f"❌ Ошибка в handle_tasks: {e}")
-        import traceback
-        print(traceback.format_exc())
-        bot.send_message(
-            message.chat.id,
-            "⚠️ Произошла ошибка при загрузке заданий.\nПопробуй ещё раз!",
-            reply_markup=main_menu()
-        )
-
-def handle_leaderboard(bot, message):
-    """Показать рейтинг"""
-    user_id = message.chat.id
+    if not is_registered(user_id):
+        bot.send_message(user_id, "⚠️ Сначала пройди регистрацию! Напиши /start")
+        return
     
-    try:
-        leaderboard = get_leaderboard(limit=10)
-        user_rank = get_user_rank(user_id)
-        
-        text = "🏆 *РЕЙТИНГ МЕДИАЦЕНТРА*\n\n"
-        
-        medals = ['🥇', '🥈', '🥉']
-        
-        for i, user in enumerate(leaderboard, 1):
-            medal = medals[i-1] if i <= 3 else f"{i}."
-            name = user.get('first_name', 'Участник')
-            xp = user.get('xp', 0)
-            
-            if user['user_id'] == user_id:
-                text += f"*{medal} {name} - {xp} XP* ⬅️ ТЫ\n"
-            else:
-                text += f"{medal} {name} - {xp} XP\n"
-        
-        text += f"\n━━━━━━━━━━━━━━━━━━━━\n\n"
-        
-        if user_rank:
-            if user_rank <= 10:
-                text += f"Ты в топ-10! 🔥"
-            else:
-                text += f"📊 Твоя позиция: {user_rank} место"
-        
-        # ✅ ИСПРАВЛЕНО: Добавлена inline-клавиатура!
-        bot.send_message(
-            message.chat.id,
-            text,
-            parse_mode='Markdown',
-            reply_markup=leaderboard_menu()
-        )
-    except Exception as e:
-        print(f"❌ Ошибка в handle_leaderboard: {e}")
-        import traceback
-        print(traceback.format_exc())
-        bot.send_message(
-            message.chat.id,
-            "⚠️ Произошла ошибка при загрузке рейтинга.\nПопробуй ещё раз!",
-            reply_markup=main_menu()
-        )
+    handle_qr_code(bot, message)
 
-# ========== ОБРАБОТКА CALLBACK КНОПОК ==========
 def handle_callback(bot, call):
+    """Обработать inline-кнопки"""
     user_id = call.message.chat.id
     
     try:
+        # ========== РЕГИСТРАЦИЯ ==========
+        
+        # Выбор обращения (имя/ник)
+        if call.data in ['prefer_name', 'prefer_nickname']:
+            handle_nickname_preference(bot, call)
+            return
+        
+        # ========== ГЛАВНОЕ МЕНЮ ==========
+        
         # Главное меню
         if call.data == 'main_menu':
             bot.answer_callback_query(call.id)
@@ -466,27 +292,70 @@ def handle_callback(bot, call):
         print(traceback.format_exc())
         bot.answer_callback_query(call.id, "⚠️ Произошла ошибка")
 
-# ========== ОБРАБОТКА ФОТО (для QR-кода и заданий) ==========
-def handle_photo(bot, message):
-    user_id = message.chat.id
+def show_profile(bot, user_id):
+    """Показать профиль пользователя"""
     user = get_user(user_id)
+    stats = get_user_stats(user_id)
+    rank = get_user_rank(user_id)
     
-    # ЕСЛИ НЕТ ПОЛЬЗОВАТЕЛЯ - начинаем регистрацию
-    if not user:
-        start_registration(bot, message)
-        return
+    display_name = get_user_display_name(user_id)
     
-    # ЕСЛИ ОЖИДАЕМ QR-КОД
-    if user.get('registration_step') == 5 and not user.get('qr_code'):
-        handle_qr_code(bot, message)
-    else:
-        # TODO: Обработка отправки творческого задания
-        bot.send_message(
-            user_id, 
-            "📸 Отправка заданий скоро будет доступна!\n\nИспользуй кнопки меню 👇", 
-            reply_markup=main_menu()
-        )
+    text = f"⭐ *ТВОЙ ПРОФИЛЬ*\n\n"
+    text += f"👤 Имя: {user.get('first_name', '—')} {user.get('last_name', '')}\n"
+    text += f"🎮 Ник: {user.get('nickname', '—')}\n"
+    text += f"🎂 Возраст: {user.get('age', '—')}\n\n"
+    text += f"📊 Уровень: *{stats['level']} - {stats['level_name']}*\n"
+    text += f"⭐ Опыт: {stats['xp']} XP\n"
+    text += f"🏅 Место в рейтинге: {rank if rank else '—'}\n\n"
+    text += f"📸 QR-код: {'✅ Загружен' if user.get('qr_code') else '❌ Не загружен'}"
+    
+    bot.send_message(user_id, text, parse_mode='Markdown', reply_markup=profile_menu())
 
-# ========== КОМАНДА /STAT (для админа) ==========
+def show_calendar(bot, user_id):
+    """Показать календарь"""
+    schedule = format_schedule_week(user_id)
+    bot.send_message(user_id, schedule, parse_mode='Markdown', reply_markup=calendar_menu())
+
+def show_tasks(bot, user_id):
+    """Показать задания"""
+    task = get_active_task()
+    
+    if task:
+        text = format_task_message(task)
+    else:
+        text = "📸 *ЗАДАНИЯ*\n\nСейчас нет активных заданий 🤷‍♂️\n\nСледи за обновлениями!"
+    
+    bot.send_message(user_id, text, parse_mode='Markdown', reply_markup=tasks_menu())
+
+def show_cheatsheets(bot, user_id):
+    """Показать шпаргалки"""
+    text = "📚 *ШПАРГАЛКИ*\n\nВыбери тему:"
+    bot.send_message(user_id, text, parse_mode='Markdown', reply_markup=cheatsheets_menu())
+
+def show_leaderboard(bot, user_id):
+    """Показать рейтинг"""
+    leaderboard = get_leaderboard(limit=10)
+    
+    text = "🏆 *ТОП-10 МЕДИАЦЕНТРА*\n\n"
+    medals = ['🥇', '🥈', '🥉']
+    
+    for i, user in enumerate(leaderboard, 1):
+        medal = medals[i-1] if i <= 3 else f"{i}."
+        name = user.get('first_name', 'Участник')
+        xp = user.get('xp', 0)
+        
+        if user['user_id'] == user_id:
+            text += f"*{medal} {name} - {xp} XP* ⬅️\n"
+        else:
+            text += f"{medal} {name} - {xp} XP\n"
+    
+    bot.send_message(user_id, text, parse_mode='Markdown', reply_markup=leaderboard_menu())
+
+def show_links(bot, user_id):
+    """Показать ссылки"""
+    text = "🔗 *ПОЛЕЗНЫЕ ССЫЛКИ*\n\nВыбери куда хочешь перейти:"
+    bot.send_message(user_id, text, parse_mode='Markdown', reply_markup=links_menu())
+
 def handle_stat_command(bot, message):
+    """Обработать команду /stat (только для админа)"""
     handle_stat(bot, message)
