@@ -2,7 +2,7 @@
 РОУТЕР КОМАНД И СООБЩЕНИЙ
 Направляет запросы в соответствующие блоки
 """
-from database import get_user, is_registered, update_user
+from database import get_user, is_registered, update_user, get_user_display_name
 from registration import (
     handle_start_registration,
     handle_registration_step,
@@ -25,7 +25,6 @@ def handle_start(bot, message):
     update_user(user_id, {})
     
     # Показываем главное меню
-    from database import get_user_display_name
     display_name = get_user_display_name(user_id)
     
     welcome_text = f"""
@@ -71,22 +70,43 @@ def handle_callback(bot, call):
     user_id = call.from_user.id
     data = call.data
     
+    # 🐛 ОТЛАДКА: смотрим что приходит
+    print(f"🔍 CALLBACK: user={user_id}, data='{data}'")
+    
     # Обновляем активность
     update_user(user_id, {})
     
     # Выбор обращения (регистрация шаг 4)
     if data in ['use_name', 'use_nickname']:
+        print(f"✅ Обрабатываем выбор обращения: {data}")
         return handle_nickname_preference(bot, call)
+    
+    # Возврат в главное меню
+    if data == 'main_menu':
+        user = get_user(user_id)
+        display_name = get_user_display_name(user_id)
+        
+        bot.edit_message_text(
+            f"Йоу, {display_name}! 👋\n\nРад тебя видеть! Чем могу помочь?",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=main_menu_keyboard()
+        )
+        bot.answer_callback_query(call.id)
+        return
     
     # Админские команды
     if data == 'admin_export_db':
+        bot.answer_callback_query(call.id)
         return handle_export_db(bot, call.message)
     
     if data == 'admin_without_qr':
+        bot.answer_callback_query(call.id)
         return handle_without_qr(bot, call.message)
     
     # TODO: Другие callback'и (шпаргалки, задания и т.д.)
     
+    print(f"⚠️ Неизвестный callback: {data}")
     bot.answer_callback_query(call.id, "🔧 В разработке!")
 
 def handle_photo(bot, message):
