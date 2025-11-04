@@ -155,6 +155,10 @@ def handle_registration_step(bot, message):
             parse_mode='Markdown',
             reply_markup=ReplyKeyboardRemove()
         )
+        
+        # Уведомление админу о начале регистрации
+        from admin import notify_admin_new_user
+        notify_admin_new_user(bot, user)
 
 def handle_qr_code(bot, message):
     """Обработка полученного QR-кода"""
@@ -184,20 +188,12 @@ def handle_qr_code(bot, message):
             parse_mode='Markdown'
         )
         
-        # Уведомление админу
-        from config import ADMIN_ID
-        bot.send_message(
-            ADMIN_ID,
-            f"✅ Новый участник на борту!\n\n"
-            f"👤 Имя: {user['first_name']} {user['last_name']}\n"
-            f"🎮 Ник: {user['nickname']}\n"
-            f"🎂 Возраст: {user['age']}\n"
-            f"🆔 ID: {user_id}",
-            parse_mode='Markdown'
-        )
+        # Получаем обновлённые данные пользователя
+        user = get_user(user_id)
         
-        # Отправляем админу QR-код
-        bot.send_photo(ADMIN_ID, file_id, caption=f"QR-код от {user['first_name']} ({user['nickname']})")
+        # Уведомление админу с QR-кодом
+        from admin import notify_admin_new_user
+        notify_admin_new_user(bot, user, file_id)
 
 def send_qr_reminder(bot, user_data):
     """Отправить напоминание о QR-коде"""
