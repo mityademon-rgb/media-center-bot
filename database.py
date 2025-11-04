@@ -3,80 +3,82 @@
 """
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
-DB_FILE = 'users.json'
+DATABASE_FILE = 'users.json'
 
 def load_users():
-    """Загрузить пользователей из файла"""
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, 'r', encoding='utf-8') as f:
+    """Загрузить всех пользователей из файла"""
+    if not os.path.exists(DATABASE_FILE):
+        return {}
+    
+    try:
+        with open(DATABASE_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    return {}
+    except:
+        return {}
 
 def save_users(users):
     """Сохранить пользователей в файл"""
-    with open(DB_FILE, 'w', encoding='utf-8') as f:
+    with open(DATABASE_FILE, 'w', encoding='utf-8') as f:
         json.dump(users, f, ensure_ascii=False, indent=2)
+
+def create_user(user_id):
+    """Создать нового пользователя"""
+    users = load_users()
+    
+    if str(user_id) in users:
+        return users[str(user_id)]
+    
+    new_user = {
+        'user_id': user_id,
+        'registration_step': 1,
+        'is_registered': False,
+        'registered_at': None,
+        
+        # Геймификация
+        'xp': 0,
+        'level': 1,
+        'attendance': [],  # Список дат посещений
+        'attendance_count': 0,
+        'events': [],  # Список мероприятий
+        'event_count': 0,
+        'task_submissions': {},  # Творческие задания
+        'task_count': 0,
+        'cheatsheets_viewed': [],  # Просмотренные шпаргалки
+        'cheatsheet_count': 0,
+        'tests_completed': {},  # Пройденные тесты
+        'test_count': 0,
+        
+        'created_at': datetime.now().isoformat()
+    }
+    
+    users[str(user_id)] = new_user
+    save_users(users)
+    
+    return new_user
 
 def get_user(user_id):
     """Получить данные пользователя"""
     users = load_users()
     return users.get(str(user_id))
 
-def create_user(user_id):
-    """Создать нового пользователя"""
-    users = load_users()
-    users[str(user_id)] = {
-        'user_id': user_id,
-        'registration_step': 1,
-        'first_name': None,
-        'last_name': None,
-        'nickname': None,
-        'age': None,
-        'prefer_name': None,  # 'name' или 'nickname'
-        'qr_code': None,
-        'qr_requested_at': None,
-        'qr_reminder_sent': False,
-        'registered_at': datetime.now().isoformat(),
-        'is_registered': False
-    }
-    save_users(users)
-    return users[str(user_id)]
-
 def update_user(user_id, **kwargs):
     """Обновить данные пользователя"""
     users = load_users()
+    
     if str(user_id) not in users:
-        users[str(user_id)] = create_user(user_id)
+        return None
     
-    for key, value in kwargs.items():
-        users[str(user_id)][key] = value
-    
+    users[str(user_id)].update(kwargs)
     save_users(users)
+    
     return users[str(user_id)]
 
 def is_registered(user_id):
     """Проверить, зарегистрирован ли пользователь"""
     user = get_user(user_id)
-    return user and user.get('is_registered', False)
-
-def get_users_waiting_qr():
-    """Получить пользователей, ожидающих QR-код больше 24 часов"""
-    users = load_users()
-    waiting = []
-    now = datetime.now()
-    
-    for user_id, user_data in users.items():
-        if (user_data.get('qr_requested_at') and 
-            not user_data.get('qr_code') and 
-            not user_data.get('qr_reminder_sent')):
-            
-            requested_at = datetime.fromisoformat(user_data['qr_requested_at'])
-            if now - requested_at >= timedelta(days=1):
-                waiting.append(user_data)
-    
-    return waiting
+    return user.get('is_registered', False) if user else False
 
 def get_user_display_name(user_id):
     """Получить имя для обращения к пользователю"""
@@ -84,12 +86,12 @@ def get_user_display_name(user_id):
     if not user:
         return "друг"
     
-    if user.get('prefer_name') == 'nickname' and user.get('nickname'):
-        return user['nickname']
-    elif user.get('first_name'):
-        return user['first_name']
+    prefer = user.get('prefer_name', 'name')
+    
+    if prefer == 'nickname':
+        return user.get('nickname', user.get('first_name', 'друг'))
     else:
-        return "друг"
+        return user.get('first_name', 'друг')
 
 def get_statistics():
     """Получить статистику по пользователям"""
