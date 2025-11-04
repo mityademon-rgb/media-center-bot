@@ -90,3 +90,46 @@ def get_user_display_name(user_id):
         return user['first_name']
     else:
         return "друг"
+
+def get_statistics():
+    """Получить статистику по пользователям"""
+    users = load_users()
+    
+    total = len(users)
+    registered = sum(1 for u in users.values() if u.get('is_registered', False))
+    waiting_qr = sum(1 for u in users.values() if u.get('registration_step') == 5 and not u.get('qr_code'))
+    in_progress = sum(1 for u in users.values() if u.get('registration_step', 999) < 5)
+    
+    return {
+        'total': total,
+        'registered': registered,
+        'waiting_qr': waiting_qr,
+        'in_progress': in_progress
+    }
+
+def get_recent_users(limit=10):
+    """Получить последних пользователей"""
+    users = load_users()
+    
+    # Сортируем по дате регистрации
+    sorted_users = sorted(
+        users.values(),
+        key=lambda x: x.get('registered_at', ''),
+        reverse=True
+    )
+    
+    return sorted_users[:limit]
+
+def get_waiting_qr_users():
+    """Получить пользователей, которые ждут QR-код"""
+    users = load_users()
+    
+    waiting = []
+    for user_data in users.values():
+        if user_data.get('registration_step') == 5 and not user_data.get('qr_code'):
+            waiting.append(user_data)
+    
+    # Сортируем по дате запроса
+    waiting.sort(key=lambda x: x.get('qr_requested_at', ''), reverse=True)
+    
+    return waiting
