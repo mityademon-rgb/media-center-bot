@@ -1,27 +1,34 @@
 """
-Процесс регистрации пользователей
+Процесс регистрации пользователя
 """
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from database import get_user, update_user, create_user, get_user_display_name
-from datetime import datetime
-from config import LINKS
+from database import create_user, get_user, update_user
+from keyboards import main_menu
+from gamification import add_xp
 
 def start_registration(bot, message):
-    """Начать регистрацию"""
+    """Начать процесс регистрации"""
     user_id = message.chat.id
-    create_user(user_id)
+    
+    # Создаём нового пользователя с данными Telegram
+    telegram_data = {
+        'username': message.from_user.username,
+        'first_name': message.from_user.first_name,
+        'last_name': message.from_user.last_name
+    }
+    create_user(user_id, telegram_data)
+    
+    # Устанавливаем шаг 1 - запрос имени
+    update_user(user_id, {'registration_step': 1})
     
     bot.send_message(
         user_id,
-        "Йоу! 👋 Давай знакомиться!\n\n"
-        "📝 Напиши своё *Имя и Фамилию* (через пробел)\n\n"
-        "Например: Дмитрий Иванов",
-        parse_mode='Markdown',
-        reply_markup=ReplyKeyboardRemove()
+        "🎬 Йоу! Добро пожаловать в бот медиацентра!\n\n"
+        "Давай познакомимся!\n\n"
+        "Как тебя зовут? (напиши своё имя)"
     )
 
 def handle_registration_step(bot, message):
-    """Обработка шагов регистрации"""
+    """Обработать шаг регистрации"""
     user_id = message.chat.id
     user = get_user(user_id)
     
@@ -29,190 +36,186 @@ def handle_registration_step(bot, message):
         start_registration(bot, message)
         return
     
-    step = user.get('registration_step', 1)
+    step = user.get('registration_step', 0)
+    text = message.text.strip()
     
-    # ШАГ 1: Имя и Фамилия
+    # ШАГ 1: Имя
     if step == 1:
-        parts = message.text.strip().split(maxsplit=1)
-        if len(parts) < 2:
-            bot.send_message(
-                user_id,
-                "Эй, напиши Имя и Фамилию через пробел! 😅\n\n"
-                "Вот так: Дмитрий Иванов"
-            )
+        if len(text) < 2:
+            bot.send_message(user_id, "⚠️ Имя слишком короткое. Попробуй ещё раз:")
             return
         
-        first_name, last_name = parts[0], parts[1]
-        update_user(user_id, 
-                   first_name=first_name,
-                   last_name=last_name,
-                   registration_step=2)
+        update_user(user_id, {
+            'first_name': text,
+            'registration_step': 2
+        })
         
         bot.send_message(
             user_id,
-            f"Кайф, {first_name}! 🔥\n\n"
-            "🎮 А теперь придумай себе *крутой никнейм*!\n\n"
-            "Это может быть твой игровой ник, творческий псевдоним "
-            "или просто что-то стильное 😎\n\n"
-            "Давай, удивляй!",
-            parse_mode='Markdown'
+            f"Приятно познакомиться, {text}! 👋\n\n"
+            f"А какая у тебя фамилия?"
         )
     
-    # ШАГ 2: Никнейм
+    # ШАГ 2: Фамилия
     elif step == 2:
-        nickname = message.text.strip()
-        if len(nickname) < 2:
-            bot.send_message(user_id, "Слишком коротко! 🤔 Придумай что-нибудь покруче!")
+        if len(text) < 2:
+            bot.send_message(user_id, "⚠️ Фамилия слишком короткая. Попробуй ещё раз:")
             return
         
-        update_user(user_id, 
-                   nickname=nickname,
-                   registration_step=3)
+        update_user(user_id, {
+            'last_name': text,
+            'registration_step': 3
+        })
         
         bot.send_message(
             user_id,
-            f"Воу! *{nickname}* - звучит огонь! 🚀\n\n"
-            "🎂 Скинь свой возраст (просто напиши число)",
-            parse_mode='Markdown'
+            "Отлично! 👌\n\n"
+            "В какой ты группе?\n"
+            "(напиши номер или название группы)"
         )
     
-    # ШАГ 3: Возраст
+    # ШАГ 3: Группа
     elif step == 3:
-        try:
-            age = int(message.text.strip())
-            if age < 6 or age > 100:
-                bot.send_message(user_id, "Хм, что-то не то 🤔 Напиши свой реальный возраст")
-                return
-        except ValueError:
-            bot.send_message(user_id, "Напиши просто циферку! Например: 15")
-            return
-        
-        user = update_user(user_id, 
-                          age=age,
-                          registration_step=4)
-        
-        # Кнопки выбора обращения
-        markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        markup.add(
-            KeyboardButton(f"По имени ({user['first_name']})"),
-            KeyboardButton(f"По нику ({user['nickname']})")
-        )
+        update_user(user_id, {
+            'group': text,
+            'registration_step': 4
+        })
         
         bot.send_message(
             user_id,
-            "Окей! 👌\n\n"
-            "💬 Как тебе больше зайдёт - чтобы я к тебе обращался по имени или по нику?\n\n"
-            "Выбирай! 👇",
-            reply_markup=markup
+            "Супер! 🔥\n\n"
+            "Какое у тебя направление?\n\n"
+            "Например:\n"
+            "• Режиссура 🎬\n"
+            "• Операторское дело 🎥\n"
+            "• Монтаж ✂️\n"
+            "• Журналистика 📰\n"
+            "• Или что-то другое?"
         )
     
-    # ШАГ 4: Выбор обращения
+    # ШАГ 4: Направление
     elif step == 4:
-        text = message.text.lower()
+        update_user(user_id, {
+            'direction': text,
+            'registration_step': 5
+        })
+        
         user = get_user(user_id)
-        
-        if 'имени' in text or 'имя' in text:
-            prefer = 'name'
-            display_name = user['first_name']
-        elif 'нику' in text or 'никнейм' in text:
-            prefer = 'nickname'
-            display_name = user['nickname']
-        else:
-            bot.send_message(user_id, "Эй! Используй кнопки, которые я отправил! 👆")
-            return
-        
-        update_user(user_id,
-                   prefer_name=prefer,
-                   registration_step=5,
-                   qr_requested_at=datetime.now().isoformat())
-        
-        # ФИНАЛЬНОЕ СООБЩЕНИЕ С ИНСТРУКЦИЕЙ
-        portal_link = "https://dk.mosreg.ru/dk/marfino/workshops/804ce64a-bcbd-48ad-80cc-630f23d0c9dd"
+        first_name = user.get('first_name', 'друг')
         
         bot.send_message(
             user_id,
-            f"Ну всё, {display_name}, погнали! 🎉\n\n"
-            f"📚 Короче, занятия в медиацентре *полностью бесплатные* (да-да, за 0₽!), "
-            f"но чтобы ты мог тусить на всех наших ивентах и не пропускать занятия, "
-            f"нужно зарегаться на портале МосРег.\n\n"
-            f"🎯 *ЧТО ДЕЛАТЬ:*\n\n"
-            f"1️⃣ Тыкни на ссылку ниже 👇\n"
-            f"2️⃣ Запишись в медиацентр (любая группа норм)\n"
-            f"3️⃣ Подпиши договор (да, это быстро)\n"
-            f"4️⃣ Жди свой персональный QR-код\n\n"
-            f"📍 *ГДЕ ИСКАТЬ QR-КОД:*\n\n"
-            f"Этот код будет на твоём *личном бейдже* 🎫\n"
-            f"Найдёшь его в *нижнем меню* на сайте mosreg.ru\n"
-            f"(типа там будет раздел с твоим профилем)\n\n"
-            f"5️⃣ Сделай скрин или фото бейджа и скинь мне!\n\n"
-            f"🔗 *ВОТ ССЫЛКА:*\n"
-            f"{portal_link}\n\n"
-            f"⏰ *ПО ВРЕМЕНИ:*\n"
-            f"Код не сразу придёт, это норма! Сначала договор подпишешь, "
-            f"потом появится бейдж. Может занять денёк-другой.\n\n"
-            f"🤖 А пока можешь юзать бота! Я тебе потом напомню про код, не переживай 😉\n\n"
-            f"Поехали! Жми /start и погнали! 🚀",
-            parse_mode='Markdown',
-            reply_markup=ReplyKeyboardRemove()
+            f"Круто, {first_name}! 🎉\n\n"
+            f"Последний шаг!\n\n"
+            f"📸 Скинь мне фото или скриншот твоего QR-кода с бейджа МосРег.\n\n"
+            f"Это нужно для отметки посещений.\n\n"
+            f"⚠️ Если у тебя пока нет QR - не страшно! "
+            f"Скинешь потом, но пока можешь юзать бота 👇"
         )
-        
-        # Уведомление админу о начале регистрации
-        from admin import notify_admin_new_user
-        notify_admin_new_user(bot, user)
+    
+    else:
+        bot.send_message(
+            user_id,
+            "Что-то пошло не так 🤔\n\nДавай начнём сначала!",
+            reply_markup=main_menu()
+        )
+        start_registration(bot, message)
 
 def handle_qr_code(bot, message):
-    """Обработка полученного QR-кода"""
+    """Обработать отправку QR-кода"""
     user_id = message.chat.id
     user = get_user(user_id)
     
     if not user:
+        bot.send_message(user_id, "⚠️ Сначала пройди регистрацию! Напиши /start")
         return
     
-    # Проверяем, что это фото
-    if message.photo:
-        file_id = message.photo[-1].file_id
-        
-        update_user(user_id,
-                   qr_code=file_id,
-                   is_registered=True,
-                   registration_step=999)  # Регистрация завершена
-        
-        display_name = get_user_display_name(user_id)
-        
+    # Проверяем что пользователь на шаге 5 (ожидание QR)
+    if user.get('registration_step') != 5:
         bot.send_message(
             user_id,
-            f"Ееее, {display_name}! 🔥 QR-код получил!\n\n"
-            f"🎉 *РЕГИСТРАЦИЯ ЗАВЕРШЕНА!* 🎉\n\n"
-            f"Теперь у тебя полный доступ ко всему! \n\n"
-            f"Давай, жми /start и погнали творить! 🚀",
-            parse_mode='Markdown'
+            "📸 Спасибо за фото, но сейчас я его не жду 🤔\n\n"
+            "Используй кнопки меню 👇",
+            reply_markup=main_menu()
         )
-        
-        # Получаем обновлённые данные пользователя
-        user = get_user(user_id)
-        
-        # Уведомление админу с QR-кодом
-        from admin import notify_admin_new_user
-        notify_admin_new_user(bot, user, file_id)
-
-def send_qr_reminder(bot, user_data):
-    """Отправить напоминание о QR-коде"""
-    user_id = user_data['user_id']
-    display_name = get_user_display_name(user_id)
+        return
     
-    update_user(user_id, qr_reminder_sent=True)
+    # Получаем фото наибольшего размера
+    photo = message.photo[-1]
+    file_id = photo.file_id
+    
+    # Сохраняем QR-код
+    update_user(user_id, {
+        'qr_code': file_id,
+        'registration_step': 6,  # Регистрация завершена!
+        'qr_verified': False  # Ждёт проверки админом
+    })
+    
+    # Даём бонус за регистрацию
+    xp_result = add_xp(user_id, 50, 'registration')
+    
+    first_name = user.get('first_name', 'друг')
     
     bot.send_message(
         user_id,
-        f"Йоу, {display_name}! 👋\n\n"
-        f"📸 Где твой QR-код с портала МосРег? Я жду! 😎\n\n"
-        f"*Как найти:*\n\n"
-        f"1️⃣ Зайди на mosreg.ru\n"
-        f"2️⃣ В *нижнем меню* найди свой бейдж\n"
-        f"3️⃣ Там увидишь QR-код\n"
-        f"4️⃣ Сделай скрин и кинь мне!\n\n"
-        f"Если бейдж ещё не появился - всё окей, просто подожди ещё чуть-чуть "
-        f"и проверь попозже 📧\n\n"
-        f"Жду! 🔥",
-        parse_mode='Markdown'
+        f"🎉 Отлично, {first_name}! Регистрация завершена!\n\n"
+        f"📸 QR-код сохранён! Админ проверит его в ближайшее время.\n\n"
+        f"💰 Ты получил *+50 XP* за регистрацию!\n\n"
+        f"Теперь ты можешь:\n"
+        f"• Смотреть расписание 📅\n"
+        f"• Выполнять задания 📸\n"
+        f"• Учить шпаргалки 📚\n"
+        f"• Соревноваться в рейтинге 🏆\n\n"
+        f"Используй кнопки меню! 👇",
+        parse_mode='Markdown',
+        reply_markup=main_menu()
     )
+    
+    # Уведомляем админа о новом QR
+    try:
+        import os
+        admin_id = int(os.environ.get('ADMIN_ID', 0))
+        if admin_id:
+            bot.send_message(
+                admin_id,
+                f"📸 *НОВЫЙ QR-КОД*\n\n"
+                f"От: {first_name} {user.get('last_name', '')}\n"
+                f"Группа: {user.get('group', '—')}\n"
+                f"Направление: {user.get('direction', '—')}\n"
+                f"ID: `{user_id}`",
+                parse_mode='Markdown'
+            )
+            bot.send_photo(admin_id, file_id)
+    except Exception as e:
+        print(f"⚠️ Не удалось уведомить админа: {e}")
+
+def skip_qr_code(bot, user_id):
+    """Пропустить отправку QR-кода"""
+    user = get_user(user_id)
+    
+    if not user or user.get('registration_step') != 5:
+        return False
+    
+    # Завершаем регистрацию без QR
+    update_user(user_id, {
+        'registration_step': 6,
+        'qr_code': None,
+        'qr_verified': False
+    })
+    
+    # Даём бонус за регистрацию
+    add_xp(user_id, 50, 'registration')
+    
+    first_name = user.get('first_name', 'друг')
+    
+    bot.send_message(
+        user_id,
+        f"✅ Окей, {first_name}! Регистрация завершена!\n\n"
+        f"📸 Когда будет QR-код - скинь мне его в любое время.\n\n"
+        f"💰 Ты получил *+50 XP* за регистрацию!\n\n"
+        f"А пока можешь юзать бота! 👇",
+        parse_mode='Markdown',
+        reply_markup=main_menu()
+    )
+    
+    return True
