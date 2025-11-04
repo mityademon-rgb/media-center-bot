@@ -1,100 +1,51 @@
 """
-Клавиатуры для бота
+ВСЕ КЛАВИАТУРЫ БОТА
 """
 from telebot import types
 
-def main_menu():
-    """Главное меню"""
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.row('⭐ Мой профиль', '📅 Календарь')
-    keyboard.row('📸 Задания', '📚 Шпаргалки')
-    keyboard.row('🏆 Рейтинг', '🔗 Ссылки')
-    return keyboard
+# === ПОСТОЯННАЯ КЛАВИАТУРА ВНИЗУ (ReplyKeyboard) ===
 
-def profile_menu():
-    """Меню профиля (inline)"""
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(types.InlineKeyboardButton('🏠 Главное меню', callback_data='main_menu'))
-    return keyboard
+def main_reply_keyboard():
+    """Главное меню (постоянная клавиатура внизу)"""
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    
+    buttons = [
+        types.KeyboardButton("📚 Шпаргалки"),
+        types.KeyboardButton("📅 Расписание"),
+        types.KeyboardButton("🎯 Задания"),
+        types.KeyboardButton("👤 Профиль"),
+        types.KeyboardButton("📊 Прогресс"),
+        types.KeyboardButton("❓ Помощь")
+    ]
+    
+    markup.add(*buttons)
+    return markup
 
-def calendar_menu():
-    """Меню календаря (inline)"""
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.row(
-        types.InlineKeyboardButton('📅 На эту неделю', callback_data='calendar_week'),
-        types.InlineKeyboardButton('📆 На весь месяц', callback_data='calendar_month')
-    )
-    keyboard.add(types.InlineKeyboardButton('🏠 Главное меню', callback_data='main_menu'))
-    return keyboard
 
-def tasks_menu():
-    """Меню заданий (inline)"""
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.row(
-        types.InlineKeyboardButton('📸 Текущее задание', callback_data='current_task'),
-        types.InlineKeyboardButton('📋 Все задания', callback_data='all_tasks')
-    )
-    keyboard.add(types.InlineKeyboardButton('✅ Мои работы', callback_data='my_tasks'))
-    keyboard.add(types.InlineKeyboardButton('🏠 Главное меню', callback_data='main_menu'))
-    return keyboard
-
-def cheatsheets_menu():
-    """Меню шпаргалок (inline)"""
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.row(
-        types.InlineKeyboardButton('🎥 Камера', callback_data='cheat_camera'),
-        types.InlineKeyboardButton('📰 Журналистика', callback_data='cheat_journalism')
-    )
-    keyboard.row(
-        types.InlineKeyboardButton('🎬 Режиссура', callback_data='cheat_directing'),
-        types.InlineKeyboardButton('✂️ Монтаж', callback_data='cheat_editing')
-    )
-    keyboard.row(
-        types.InlineKeyboardButton('💡 Советы', callback_data='cheat_tips'),
-        types.InlineKeyboardButton('🎨 Композиция', callback_data='cheat_composition')
-    )
-    keyboard.add(types.InlineKeyboardButton('🏠 Главное меню', callback_data='main_menu'))
-    return keyboard
-
-def links_menu():
-    """Меню ссылок (inline)"""
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(types.InlineKeyboardButton('🌐 Сайт медиацентра', url='https://dk.mosreg.ru/dk/marfino'))
-    keyboard.add(types.InlineKeyboardButton('💬 Чат медиацентра', url='https://t.me/+your_chat_link'))
-    keyboard.add(types.InlineKeyboardButton('📱 Instagram', url='https://instagram.com/mediacenter_marfino'))
-    keyboard.add(types.InlineKeyboardButton('🎬 YouTube', url='https://youtube.com/@mediacenter_marfino'))
-    keyboard.add(types.InlineKeyboardButton('🏠 Главное меню', callback_data='main_menu'))
-    return keyboard
-
-def leaderboard_menu():
-    """Меню рейтинга (inline)"""
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.row(
-        types.InlineKeyboardButton('🏆 Топ-10', callback_data='leaderboard_top10'),
-        types.InlineKeyboardButton('📊 Моя позиция', callback_data='my_rank')
-    )
-    keyboard.add(types.InlineKeyboardButton('🏠 Главное меню', callback_data='main_menu'))
-    return keyboard
-
-def back_to_main():
-    """Кнопка возврата в главное меню"""
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(types.InlineKeyboardButton('🏠 Главное меню', callback_data='main_menu'))
-    return keyboard
+# === РЕГИСТРАЦИЯ (InlineKeyboard - остаётся) ===
 
 def nickname_preference_keyboard(first_name, nickname):
-    """Клавиатура выбора обращения (имя/ник)"""
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.row(
-        types.InlineKeyboardButton(f'По имени ({first_name})', callback_data='prefer_name'),
-        types.InlineKeyboardButton(f'По нику ({nickname})', callback_data='prefer_nickname')
-    )
-    return keyboard
+    """Клавиатура выбора: по имени или по нику"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
     
-# === ГЛАВНОЕ МЕНЮ ===
+    btn_name = types.InlineKeyboardButton(
+        f"👤 {first_name}",
+        callback_data="use_name"
+    )
+    
+    btn_nickname = types.InlineKeyboardButton(
+        f"🎮 {nickname}",
+        callback_data="use_nickname"
+    )
+    
+    markup.add(btn_name, btn_nickname)
+    return markup
+
+
+# === ГЛАВНОЕ МЕНЮ (InlineKeyboard - для callback) ===
 
 def main_menu_keyboard():
-    """Главное меню после регистрации"""
+    """Главное меню (inline кнопки)"""
     markup = types.InlineKeyboardMarkup(row_width=2)
     
     buttons = [
@@ -109,3 +60,114 @@ def main_menu_keyboard():
     markup.add(*buttons)
     return markup
 
+
+# === ШПАРГАЛКИ ===
+
+def cheatsheets_keyboard():
+    """Меню шпаргалок"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    buttons = [
+        types.InlineKeyboardButton("📸 Фото", callback_data="cheat_photo"),
+        types.InlineKeyboardButton("🎬 Видео", callback_data="cheat_video"),
+        types.InlineKeyboardButton("🎨 Дизайн", callback_data="cheat_design"),
+        types.InlineKeyboardButton("✂️ Монтаж", callback_data="cheat_editing"),
+        types.InlineKeyboardButton("🎤 Звук", callback_data="cheat_sound"),
+        types.InlineKeyboardButton("📱 SMM", callback_data="cheat_smm"),
+        types.InlineKeyboardButton("◀️ Назад", callback_data="main_menu")
+    ]
+    
+    markup.add(*buttons)
+    return markup
+
+
+# === ПРОФИЛЬ ===
+
+def profile_keyboard():
+    """Меню профиля"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    buttons = [
+        types.InlineKeyboardButton("✏️ Изменить имя", callback_data="edit_name"),
+        types.InlineKeyboardButton("🎮 Изменить ник", callback_data="edit_nickname"),
+        types.InlineKeyboardButton("💬 Изменить обращение", callback_data="edit_preference"),
+        types.InlineKeyboardButton("🎫 Загрузить QR", callback_data="upload_qr"),
+        types.InlineKeyboardButton("◀️ Назад", callback_data="main_menu")
+    ]
+    
+    markup.add(*buttons)
+    return markup
+
+
+# === РАСПИСАНИЕ ===
+
+def schedule_keyboard():
+    """Меню расписания"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    buttons = [
+        types.InlineKeyboardButton("📅 На эту неделю", callback_data="schedule_week"),
+        types.InlineKeyboardButton("📆 На месяц", callback_data="schedule_month"),
+        types.InlineKeyboardButton("🔔 Мои напоминания", callback_data="my_reminders"),
+        types.InlineKeyboardButton("◀️ Назад", callback_data="main_menu")
+    ]
+    
+    markup.add(*buttons)
+    return markup
+
+
+# === ЗАДАНИЯ ===
+
+def tasks_keyboard():
+    """Меню заданий"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    buttons = [
+        types.InlineKeyboardButton("📋 Активные", callback_data="tasks_active"),
+        types.InlineKeyboardButton("✅ Выполненные", callback_data="tasks_completed"),
+        types.InlineKeyboardButton("🎯 Получить новое", callback_data="tasks_new"),
+        types.InlineKeyboardButton("◀️ Назад", callback_data="main_menu")
+    ]
+    
+    markup.add(*buttons)
+    return markup
+
+
+# === АДМИНКА ===
+
+def admin_keyboard():
+    """Меню админа"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    buttons = [
+        types.InlineKeyboardButton("📥 Экспорт базы", callback_data="admin_export_db"),
+        types.InlineKeyboardButton("⏳ Без QR-кода", callback_data="admin_without_qr"),
+        types.InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
+        types.InlineKeyboardButton("✉️ Рассылка", callback_data="admin_broadcast")
+    ]
+    
+    markup.add(*buttons)
+    return markup
+
+
+# === ПОДТВЕРЖДЕНИЕ ===
+
+def confirm_keyboard(action):
+    """Клавиатура подтверждения действия"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    btn_yes = types.InlineKeyboardButton("✅ Да", callback_data=f"confirm_{action}")
+    btn_no = types.InlineKeyboardButton("❌ Нет", callback_data=f"cancel_{action}")
+    
+    markup.add(btn_yes, btn_no)
+    return markup
+
+
+# === НАЗАД В МЕНЮ ===
+
+def back_to_menu_keyboard():
+    """Простая кнопка назад"""
+    markup = types.InlineKeyboardMarkup()
+    btn_back = types.InlineKeyboardButton("◀️ Главное меню", callback_data="main_menu")
+    markup.add(btn_back)
+    return markup
