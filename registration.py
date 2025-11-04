@@ -219,3 +219,30 @@ def skip_qr_code(bot, user_id):
     )
     
     return True
+
+def send_qr_reminder(bot):
+    """Отправить напоминание пользователям без QR-кода"""
+    from database import get_all_users
+    
+    users = get_all_users()
+    count = 0
+    
+    for user_id_str, user in users.items():
+        # Проверяем: регистрация завершена, но нет QR-кода
+        if user.get('registration_step') == 6 and not user.get('qr_code'):
+            try:
+                first_name = user.get('first_name', 'друг')
+                
+                bot.send_message(
+                    int(user_id_str),
+                    f"👋 Привет, {first_name}!\n\n"
+                    f"📸 Не забудь скинуть мне QR-код с бейджа МосРег!\n\n"
+                    f"Это нужно для отметки посещений 📋\n\n"
+                    f"Просто отправь мне фото или скриншот бейджа 👇"
+                )
+                count += 1
+            except Exception as e:
+                print(f"⚠️ Не удалось отправить напоминание {user_id_str}: {e}")
+    
+    print(f"✅ Отправлено {count} напоминаний о QR-коде")
+    return count
