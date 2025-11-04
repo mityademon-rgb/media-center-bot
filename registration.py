@@ -6,6 +6,9 @@ import re
 from datetime import datetime
 from database import get_user, create_user, update_user, get_user_display_name
 
+# ID админа для уведомлений
+ADMIN_ID = 397724997
+
 def handle_start_registration(bot, message):
     """Начать регистрацию"""
     user_id = message.from_user.id
@@ -160,13 +163,36 @@ def handle_age(bot, message):
         )
         return
     
-    # Сохраняем (регистрация завершена - шаг 5!)
+    # Получаем данные пользователя
     user = get_user(user_id)
+    first_name = user.get('first_name', '?')
+    last_name = user.get('last_name', '?')
+    nickname = user.get('nickname', '?')
+    telegram_username = user.get('telegram_username', 'unknown')
+    
+    # Сохраняем (регистрация завершена - шаг 5!)
     update_user(user_id, {
         'age': age,
         'use_nickname': False,  # По умолчанию по имени
         'registration_step': 5  # Регистрация завершена!
     })
+    
+    # === УВЕДОМЛЕНИЕ АДМИНУ О РЕГИСТРАЦИИ ===
+    try:
+        admin_message = (
+            f"🎉 **НОВАЯ РЕГИСТРАЦИЯ!**\n\n"
+            f"👤 Имя: {first_name} {last_name}\n"
+            f"🎮 Ник: {nickname}\n"
+            f"📅 Возраст: {age}\n"
+            f"⏰ {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+            f"ID: `{user_id}`\n"
+            f"Username: @{telegram_username}"
+        )
+        
+        bot.send_message(ADMIN_ID, admin_message, parse_mode='Markdown')
+        print(f"✅ Уведомление админу о регистрации: {first_name} {last_name}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки уведомления админу: {e}")
     
     # Инструкция про QR-код
     qr_text = """
@@ -217,6 +243,25 @@ def handle_qr_photo(bot, message):
         'qr_code': photo_file_id,
         'qr_uploaded_at': datetime.now().isoformat()
     })
+    
+    # === УВЕДОМЛЕНИЕ АДМИНУ О ЗАГРУЗКЕ QR ===
+    try:
+        first_name = user.get('first_name', '?')
+        last_name = user.get('last_name', '?')
+        nickname = user.get('nickname', '?')
+        telegram_username = user.get('telegram_username', 'unknown')
+        
+        caption = (
+            f"🎫 **QR-КОД ЗАГРУЖЕН**\n\n"
+            f"👤 {first_name} {last_name} (@{telegram_username})\n"
+            f"🎮 Ник: {nickname}\n\n"
+            f"ID: `{user_id}`"
+        )
+        
+        bot.send_photo(ADMIN_ID, photo_file_id, caption=caption, parse_mode='Markdown')
+        print(f"✅ Уведомление админу о QR: {first_name} {last_name}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки QR админу: {e}")
     
     display_name = get_user_display_name(user_id)
     
