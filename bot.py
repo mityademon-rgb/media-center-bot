@@ -1,40 +1,27 @@
+"""
+Главный файл бота - только запуск и регистрация обработчиков
+"""
 import telebot
-from telebot.types import ReplyKeyboardRemove
-import os
+from config import TELEGRAM_TOKEN
+from handlers import handle_start, handle_text, handle_callback
 
-TOKEN = os.environ.get('TELEGRAM_TOKEN')
-bot = telebot.TeleBot(TOKEN)
+# Инициализация бота
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
+# Регистрация обработчиков
 @bot.message_handler(commands=['start'])
 def start(message):
-    # Убираем старые кнопки
-    bot.send_message(
-        message.chat.id, 
-        "🎬 Привет! Я бот медиацентра Марфино!\n\n"
-        "Это обновлённая версия. Старые кнопки убраны!\n\n"
-        "Пиши команды:\n"
-        "/start - начать\n"
-        "/help - помощь",
-        reply_markup=ReplyKeyboardRemove()
-    )
-
-@bot.message_handler(commands=['help'])
-def help_command(message):
-    bot.send_message(
-        message.chat.id,
-        "📚 Доступные команды:\n\n"
-        "/start - начать заново\n"
-        "/help - эта справка"
-    )
+    handle_start(bot, message)
 
 @bot.message_handler(func=lambda m: True)
-def echo(message):
-    bot.send_message(
-        message.chat.id, 
-        f"✉️ Ты написал: {message.text}\n\n"
-        "Скоро добавим больше функций! 🚀"
-    )
+def text_handler(message):
+    handle_text(bot, message)
 
+@bot.callback_query_handler(func=lambda call: True)
+def callback_handler(call):
+    handle_callback(bot, call)
+
+# Запуск бота
 if __name__ == '__main__':
     print("✅ Бот запущен!")
     bot.polling(none_stop=True)
