@@ -5,6 +5,7 @@ from keyboards import main_menu, cheatsheets_menu, links_menu, tests_menu
 from texts import WELCOME_TEXT, CHEATSHEETS
 from database import is_registered, get_user, get_user_display_name
 from registration import start_registration, handle_registration_step, handle_qr_code
+from admin import handle_stat
 
 # ========== КОМАНДА /START ==========
 def handle_start(bot, message):
@@ -165,3 +166,7 @@ def handle_photo(bot, message):
         handle_qr_code(bot, message)
     else:
         bot.send_message(user_id, "🤔 Зачем фото? Используй кнопки меню 👇", reply_markup=main_menu())
+
+# ========== КОМАНДА /STAT (для админа) ==========
+def handle_stat_command(bot, message):
+    handle_stat(bot, message)
