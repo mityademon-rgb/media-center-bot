@@ -3,7 +3,8 @@
 Шаги: Имя → Никнейм → Возраст → Обращение → QR-инструкция
 """
 import re
-from database import get_user, create_user, update_user
+from datetime import datetime
+from database import get_user, create_user, update_user, get_user_display_name
 from keyboards import nickname_preference_keyboard
 
 def handle_start_registration(bot, message):
@@ -254,7 +255,6 @@ def handle_qr_photo(bot, message):
         'qr_uploaded_at': datetime.now().isoformat()
     })
     
-    user = get_user(user_id)
     display_name = get_user_display_name(user_id)
     
     bot.send_message(
@@ -263,3 +263,50 @@ def handle_qr_photo(bot, message):
         "✅ QR-код сохранён!\n\n"
         "Теперь ты можешь полноценно пользоваться ботом! Жми /start 🚀"
     )
+
+
+# === НАПОМИНАНИЕ О QR-КОДЕ ===
+
+def send_qr_reminder(bot):
+    """Отправить напоминание о QR-коде пользователям без него"""
+    from database import get_waiting_qr_users
+    
+    waiting_users = get_waiting_qr_users()
+    
+    if not waiting_users:
+        print("✅ Все пользователи с QR-кодами")
+        return
+    
+    reminder_text = """
+👋 Привет, {name}!
+
+Напоминаю, что тебе нужно загрузить QR-код с бейджа 🎫
+
+📍 **Где найти:**
+1. Зайди на https://dk.mosreg.ru
+2. Открой свой профиль (нижнее меню)
+3. Найди раздел с бейджем
+4. Сделай скриншот и скинь мне!
+
+🔗 **Ссылка для регистрации:**
+https://dk.mosreg.ru/dk/marfino/workshops/804ce64a-bcbd-48ad-80cc-630f23d0c9dd
+
+Как загрузишь - сразу получишь полный доступ к боту! 🚀
+"""
+    
+    sent_count = 0
+    
+    for user in waiting_users:
+        try:
+            user_id = user['user_id']
+            display_name = get_user_display_name(user_id)
+            
+            personalized_text = reminder_text.format(name=display_name)
+            
+            bot.send_message(user_id, personalized_text, parse_mode='Markdown')
+            sent_count += 1
+            
+        except Exception as e:
+            print(f"⚠️ Не удалось отправить напоминание {user_id}: {e}")
+    
+    print(f"✅ Отправлено {sent_count} напоминаний о QR-коде")
