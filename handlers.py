@@ -10,7 +10,13 @@ from registration import (
     handle_qr_photo
 )
 from admin import handle_stat, handle_export_db, handle_without_qr, is_admin
-from keyboards import main_reply_keyboard, main_menu_keyboard
+from schedule import (
+    handle_schedule_week,
+    handle_schedule_month,
+    handle_add_event_start,
+    handle_add_event_step
+)
+from keyboards import main_reply_keyboard, main_menu_keyboard, schedule_keyboard
 
 def handle_start(bot, message):
     """Команда /start"""
@@ -49,6 +55,11 @@ def handle_text(bot, message):
     if not user or not is_registered(user_id):
         return handle_registration_step(bot, message)
     
+    # Проверяем добавление события (админ)
+    if user.get('adding_event'):
+        if handle_add_event_step(bot, message):
+            return
+    
     # Обновляем активность
     update_user(user_id, {})
     
@@ -63,9 +74,14 @@ def handle_text(bot, message):
         return
     
     if text == "📅 Расписание":
+        # Показываем меню расписания
+        keyboard = schedule_keyboard()
         bot.send_message(
             message.chat.id,
-            "🔧 Расписание в разработке!\n\nСкоро покажу все занятия 📅"
+            "📅 **РАСПИСАНИЕ МЕДИАЦЕНТРА**\n\n"
+            "Выбери что хочешь посмотреть:",
+            reply_markup=keyboard,
+            parse_mode='Markdown'
         )
         return
     
@@ -119,6 +135,7 @@ def handle_text(bot, message):
 **Команды:**
 /start - главное меню
 /stat - статистика (только для админа)
+/add_event - добавить занятие (только для админа)
 
 Возникли вопросы? Пиши @admin 💬
 """
@@ -142,6 +159,19 @@ def handle_callback(bot, call):
     
     # Обновляем активность
     update_user(user_id, {})
+    
+    # РАСПИСАНИЕ
+    if data == 'schedule_week':
+        bot.answer_callback_query(call.id)
+        return handle_schedule_week(bot, call.message)
+    
+    if data == 'schedule_month':
+        bot.answer_callback_query(call.id)
+        return handle_schedule_month(bot, call.message)
+    
+    if data == 'my_reminders':
+        bot.answer_callback_query(call.id, "🔧 Напоминания в разработке!")
+        return
     
     # Возврат в главное меню
     if data == 'main_menu':
@@ -187,3 +217,7 @@ def handle_photo(bot, message):
 def handle_stat_command(bot, message):
     """Команда /stat (для админа)"""
     return handle_stat(bot, message)
+
+def handle_add_event_command(bot, message):
+    """Команда /add_event (для админа)"""
+    return handle_add_event_start(bot, message)
