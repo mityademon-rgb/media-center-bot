@@ -306,4 +306,50 @@ def handle_add_event_step(bot, message):
         
         return True
     
+
+# === АВТОМАТИЧЕСКИЕ НАПОМИНАНИЯ ===
+
+def send_daily_reminders(bot):
+    """Отправить напоминания о событиях сегодня (запускается каждый день в 9:00)"""
+    from database import get_all_users
+    
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow = today + timedelta(days=1)
+    
+    # События сегодня
+    schedule = load_schedule()
+    today_events = []
+    
+    for event in schedule:
+        event_date = datetime.fromisoformat(event['date'])
+        if today <= event_date < tomorrow:
+            today_events.append(event)
+    
+    if not today_events:
+        print("✅ Событий на сегодня нет")
+        return
+    
+    # Формируем сообщение
+    text = "🔔 **НАПОМИНАНИЕ О ЗАНЯТИЯХ СЕГОДНЯ!**\n\n"
+    
+    for event in today_events:
+        text += format_event(event) + "\n"
+    
+    text += "\n📍 Не забудь прийти вовремя! Ждём тебя 🚀"
+    
+    # Отправляем всем зарегистрированным пользователям
+    users = get_all_users()
+    sent_count = 0
+    
+    for user in users:
+        # Только зарегистрированным
+        if user.get('registration_step', 0) >= 5:
+            try:
+                bot.send_message(user['user_id'], text, parse_mode='Markdown')
+                sent_count += 1
+            except Exception as e:
+                print(f"⚠️ Не удалось отправить {user['user_id']}: {e}")
+    
+    print(f"✅ Отправлено {sent_count} напоминаний о {len(today_events)} событиях")
+
     return False
