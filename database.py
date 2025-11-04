@@ -3,6 +3,7 @@
 """
 import os
 import json
+from datetime import datetime
 
 # Глобальная база данных (в памяти)
 _users_cache = {}
@@ -62,7 +63,7 @@ def create_user(user_id, telegram_data=None):
         'level': 1,
         'tasks_completed': 0,
         'cheatsheets_viewed': [],
-        'created_at': None
+        'created_at': datetime.now().isoformat()
     }
     
     # Добавляем данные из Telegram
@@ -132,6 +133,55 @@ def delete_user(user_id):
         return True
     
     return False
+
+# ========== ФУНКЦИИ ДЛЯ АДМИНА ==========
+
+def get_statistics():
+    """Получить общую статистику"""
+    users = get_all_users()
+    
+    total_users = len(users)
+    registered_users = sum(1 for u in users.values() if u.get('registration_step', 0) >= 5)
+    with_qr = sum(1 for u in users.values() if u.get('qr_code'))
+    total_xp = sum(u.get('xp', 0) for u in users.values())
+    
+    return {
+        'total_users': total_users,
+        'registered_users': registered_users,
+        'with_qr': with_qr,
+        'without_qr': registered_users - with_qr,
+        'total_xp': total_xp,
+        'avg_xp': total_xp // total_users if total_users > 0 else 0
+    }
+
+def get_recent_users(limit=5):
+    """Получить последних зарегистрированных пользователей"""
+    users = get_all_users()
+    
+    # Фильтруем зарегистрированных
+    registered = [
+        u for u in users.values() 
+        if u.get('registration_step', 0) >= 5
+    ]
+    
+    # Сортируем по дате создания (если есть)
+    registered.sort(
+        key=lambda u: u.get('created_at', ''),
+        reverse=True
+    )
+    
+    return registered[:limit]
+
+def get_waiting_qr_users():
+    """Получить пользователей без QR-кода"""
+    users = get_all_users()
+    
+    waiting = [
+        u for u in users.values()
+        if u.get('registration_step', 0) >= 5 and not u.get('qr_code')
+    ]
+    
+    return waiting
 
 # Инициализация при импорте
 load_users()
