@@ -1,122 +1,86 @@
 """
-Административные функции
+БЛОК 1: АДМИНКА
+Статистика и управление пользователями
 """
-from database import get_statistics, get_recent_users, get_waiting_qr_users
-from datetime import datetime
-from config import ADMIN_ID
+from database import (
+    get_statistics, 
+    get_recent_users, 
+    get_waiting_qr_users,
+    export_database
+)
+from config import ADMIN_IDS
 
-def format_date(date_str):
-    """Форматировать дату"""
-    if not date_str:
-        return "неизвестно"
-    
-    try:
-        dt = datetime.fromisoformat(date_str)
-        return dt.strftime("%d.%m.%Y %H:%M")
-    except:
-        return date_str
-
-def get_status_emoji(user):
-    """Получить эмодзи статуса пользователя"""
-    if user.get('is_registered'):
-        return "✅"
-    elif user.get('registration_step') == 5:
-        return "⏳"
-    else:
-        return "📝"
+def is_admin(user_id):
+    """Проверка админа"""
+    return user_id in ADMIN_IDS
 
 def handle_stat(bot, message):
-    """Обработка команды /stat"""
-    
-    # Проверка, что это админ
-    if message.chat.id != ADMIN_ID:
-        bot.send_message(
-            message.chat.id,
-            "⛔ Эта команда только для админа!"
-        )
+    """Команда /stat - статистика"""
+    if not is_admin(message.from_user.id):
+        bot.send_message(message.chat.id, "⛔ Доступ запрещён")
         return
     
-    # Получаем статистику
     stats = get_statistics()
-    recent = get_recent_users(10)
-    waiting = get_waiting_qr_users()
+    recent = get_recent_users(5)
     
     # Формируем сообщение
-    text = f"""📊 *СТАТИСТИКА БОТА*
+    text = f"""
+📊 **СТАТИСТИКА МЕДИАЦЕНТРА**
 
-👥 *ПОЛЬЗОВАТЕЛИ:*
-• Всего: {stats['total']}
-• Зарегистрировано: {stats['registered']} ✅
-• Ждут QR-код: {stats['waiting_qr']} ⏳
-• В процессе регистрации: {stats['in_progress']} 📝
+👥 Всего пользователей: **{stats['total_users']}**
+✅ Зарегистрированы: **{stats['registered_users']}**
+🎫 С QR-кодом: **{stats['with_qr']}**
+⏳ Без QR: **{stats['without_qr']}**
 
+📈 **Активность:**
+• За сегодня: {stats['today_active']} чел.
+
+🆕 **Последние регистрации:**
 """
     
-    # Последние регистрации
-    if recent:
-        text += "📋 *ПОСЛЕДНИЕ 10 РЕГИСТРАЦИЙ:*\n\n"
-        for i, user in enumerate(recent, 1):
-            status = get_status_emoji(user)
-            name = f"{user.get('first_name', '?')} {user.get('last_name', '?')}"
-            nick = user.get('nickname', '?')
-            age = user.get('age', '?')
-            date = format_date(user.get('registered_at'))
-            
-            text += f"{i}. {status} *{name}* (@{nick})\n"
-            text += f"   🎂 {age} лет | 🕐 {date}\n\n"
-    
-    # Кто ждёт QR-код
-    if waiting:
-        text += f"\n⏳ *ЖДУТ QR-КОД ({len(waiting)}):*\n\n"
-        for i, user in enumerate(waiting[:5], 1):
-            name = f"{user.get('first_name', '?')} {user.get('last_name', '?')}"
-            nick = user.get('nickname', '?')
-            date = format_date(user.get('qr_requested_at'))
-            
-            text += f"{i}. *{name}* (@{nick})\n"
-            text += f"   🕐 Запросил: {date}\n\n"
+    for i, user in enumerate(recent, 1):
+        username = f"@{user.get('telegram_username')}" if user.get('telegram_username') else "без ника"
+        name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
+        created = user.get('created_at', '')[:10]  # Только дата
         
-        if len(waiting) > 5:
-            text += f"_... и ещё {len(waiting) - 5} человек_\n"
+        text += f"{i}. {name} ({username}) - {created}\n"
     
-    bot.send_message(
+    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+
+def handle_export_db(bot, message):
+    """Экспорт базы в JSON"""
+    if not is_admin(message.from_user.id):
+        return
+    
+    json_data = export_database()
+    
+    # Отправляем как документ
+    from io import BytesIO
+    file = BytesIO(json_data.encode('utf-8'))
+    file.name = 'users_database.json'
+    
+    bot.send_document(
         message.chat.id,
-        text,
-        parse_mode='Markdown'
+        file,
+        caption="📥 База данных пользователей"
     )
 
-def notify_admin_new_user(bot, user_data, qr_file_id=None):
-    """Уведомить админа о новом пользователе"""
+def handle_without_qr(bot, message):
+    """Список пользователей без QR"""
+    if not is_admin(message.from_user.id):
+        return
     
-    name = f"{user_data.get('first_name', '?')} {user_data.get('last_name', '?')}"
-    nick = user_data.get('nickname', '?')
-    age = user_data.get('age', '?')
-    user_id = user_data.get('user_id', '?')
+    waiting = get_waiting_qr_users()
     
-    text = f"""✅ *НОВЫЙ УЧАСТНИК НА БОРТУ!*
-
-👤 Имя: {name}
-🎮 Ник: {nick}
-🎂 Возраст: {age}
-🆔 ID: `{user_id}`
-"""
+    if not waiting:
+        bot.send_message(message.chat.id, "✅ Все пользователи загрузили QR!")
+        return
     
-    if user_data.get('is_registered'):
-        text += "\n🎉 *Регистрация завершена!*"
-    elif user_data.get('registration_step') == 5:
-        text += "\n⏳ *Ожидает QR-код*"
+    text = f"⏳ **Без QR-кода ({len(waiting)} чел.):**\n\n"
     
-    bot.send_message(
-        ADMIN_ID,
-        text,
-        parse_mode='Markdown'
-    )
+    for user in waiting:
+        name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
+        username = f"@{user.get('telegram_username')}" if user.get('telegram_username') else ""
+        text += f"• {name} {username}\n"
     
-    # Если есть QR-код - отправляем его
-    if qr_file_id:
-        bot.send_photo(
-            ADMIN_ID,
-            qr_file_id,
-            caption=f"📸 QR-код от *{name}* (@{nick})",
-            parse_mode='Markdown'
-        )
+    bot.send_message(message.chat.id, text, parse_mode='Markdown')
