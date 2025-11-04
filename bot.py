@@ -63,8 +63,9 @@ if __name__ == '__main__':
     print("🚀 Бот запущен и готов к работе!")
     print("=" * 50)
     
-    # Расписание на неделю (анонс)
-    print("• Анонс недели: ВС 19:00")
+    # Запускаем планировщик
+    from scheduler import start_scheduler
+    start_scheduler(bot)
     
     # Polling
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
