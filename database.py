@@ -1,137 +1,112 @@
 """
-Работа с базой данных пользователей
+Работа с базой данных пользователей (через переменные окружения)
 """
 import json
 import os
 from datetime import datetime
 
-DATABASE_FILE = 'users.json'
+# Кэш базы данных в памяти
+_users_cache = None
 
 def load_users():
-    """Загрузить всех пользователей из файла"""
-    if not os.path.exists(DATABASE_FILE):
-        return {}
+    """Загрузить всех пользователей"""
+    global _users_cache
+    
+    # Если есть в кэше - возвращаем
+    if _users_cache is not None:
+        return _users_cache
+    
+    # Пытаемся загрузить из переменной окружения
+    users_json = os.environ.get('USERS_DATABASE', '{}')
     
     try:
-        with open(DATABASE_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        _users_cache = json.loads(users_json)
+        print(f"✅ Загружено из переменной: {len(_users_cache)} пользователей")
     except:
-        return {}
+        _users_cache = {}
+        print("⚠️ База данных пуста, создаём новую")
+    
+    return _users_cache
 
 def save_users(users):
-    """Сохранить пользователей в файл"""
-    with open(DATABASE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
-
-def create_user(user_id):
-    """Создать нового пользователя"""
-    users = load_users()
+    """Сохранить пользователей (в память)"""
+    global _users_cache
+    _users_cache = users
+    print(f"✅ База в памяти обновлена: {len(users)} пользователей")
     
-    if str(user_id) in users:
-        return users[str(user_id)]
-    
-    new_user = {
-        'user_id': user_id,
-        'registration_step': 1,
-        'is_registered': False,
-        'registered_at': None,
-        
-        # Геймификация
-        'xp': 0,
-        'level': 1,
-        'attendance': [],  # Список дат посещений
-        'attendance_count': 0,
-        'events': [],  # Список мероприятий
-        'event_count': 0,
-        'task_submissions': {},  # Творческие задания
-        'task_count': 0,
-        'cheatsheets_viewed': [],  # Просмотренные шпаргалки
-        'cheatsheet_count': 0,
-        'tests_completed': {},  # Пройденные тесты
-        'test_count': 0,
-        
-        'created_at': datetime.now().isoformat()
-    }
-    
-    users[str(user_id)] = new_user
-    save_users(users)
-    
-    return new_user
+    # Выводим JSON для копирования в переменную окружения
+    users_json = json.dumps(users, ensure_ascii=False)
+    print(f"\n📋 СКОПИРУЙ ЭТО В ПЕРЕМЕННУЮ USERS_DATABASE:")
+    print(f"{users_json[:200]}..." if len(users_json) > 200 else users_json)
+    print()
 
 def get_user(user_id):
     """Получить данные пользователя"""
     users = load_users()
     return users.get(str(user_id))
 
-def update_user(user_id, **kwargs):
+def save_user(user_id, user_data):
+    """Сохранить данные пользователя"""
+    users = load_users()
+    users[str(user_id)] = user_data
+    save_users(users)
+
+def update_user(user_id, updates):
     """Обновить данные пользователя"""
     users = load_users()
+    user_id_str = str(user_id)
     
-    if str(user_id) not in users:
-        return None
+    if user_id_str not in users:
+        return False
     
-    users[str(user_id)].update(kwargs)
+    users[user_id_str].update(updates)
     save_users(users)
-    
-    return users[str(user_id)]
+    return True
+
+def get_all_users():
+    """Получить всех пользователей"""
+    return load_users()
 
 def is_registered(user_id):
-    """Проверить, зарегистрирован ли пользователь"""
-    user = get_user(user_id)
-    return user.get('is_registered', False) if user else False
-
-def get_user_display_name(user_id):
-    """Получить имя для обращения к пользователю"""
+    """Проверить зарегистрирован ли пользователь"""
     user = get_user(user_id)
     if not user:
-        return "друг"
+        return False
     
-    prefer = user.get('prefer_name', 'name')
+    reg_step = user.get('registration_step', 0)
+    return reg_step >= 6
+
+def get_user_display_name(user_id):
+    """Получить отображаемое имя пользователя"""
+    user = get_user(user_id)
+    if not user:
+        return "Участник"
     
-    if prefer == 'nickname':
-        return user.get('nickname', user.get('first_name', 'друг'))
+    first_name = user.get('first_name', '')
+    last_name = user.get('last_name', '')
+    
+    if first_name and last_name:
+        return f"{first_name} {last_name}"
+    elif first_name:
+        return first_name
     else:
-        return user.get('first_name', 'друг')
+        return "Участник"
 
-def get_statistics():
-    """Получить статистику по пользователям"""
-    users = load_users()
-    
-    total = len(users)
-    registered = sum(1 for u in users.values() if u.get('is_registered', False))
-    waiting_qr = sum(1 for u in users.values() if u.get('registration_step') == 5 and not u.get('qr_code'))
-    in_progress = sum(1 for u in users.values() if u.get('registration_step', 999) < 5)
-    
-    return {
-        'total': total,
-        'registered': registered,
-        'waiting_qr': waiting_qr,
-        'in_progress': in_progress
+def create_user(user_id, telegram_data):
+    """Создать нового пользователя"""
+    user_data = {
+        'user_id': user_id,
+        'telegram_username': telegram_data.get('username'),
+        'registration_date': datetime.now().isoformat(),
+        'registration_step': 0,
+        'xp': 0,
+        'level': 1,
+        'attendance': [],
+        'achievements': [],
+        'tasks_completed': [],
+        'cheatsheets_viewed': [],
+        'tests_passed': []
     }
-
-def get_recent_users(limit=10):
-    """Получить последних пользователей"""
-    users = load_users()
     
-    # Сортируем по дате регистрации
-    sorted_users = sorted(
-        users.values(),
-        key=lambda x: x.get('registered_at', ''),
-        reverse=True
-    )
-    
-    return sorted_users[:limit]
-
-def get_waiting_qr_users():
-    """Получить пользователей, которые ждут QR-код"""
-    users = load_users()
-    
-    waiting = []
-    for user_data in users.values():
-        if user_data.get('registration_step') == 5 and not user_data.get('qr_code'):
-            waiting.append(user_data)
-    
-    # Сортируем по дате запроса
-    waiting.sort(key=lambda x: x.get('qr_requested_at', ''), reverse=True)
-    
-    return waiting
+    save_user(user_id, user_data)
+    return user_data
