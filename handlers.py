@@ -10,7 +10,7 @@ from registration import (
     handle_qr_photo
 )
 from admin import handle_stat, handle_export_db, handle_without_qr, is_admin
-from keyboards import main_menu_keyboard
+from keyboards import main_reply_keyboard, main_menu_keyboard
 
 def handle_start(bot, message):
     """Команда /start"""
@@ -24,7 +24,7 @@ def handle_start(bot, message):
     # Обновляем активность
     update_user(user_id, {})
     
-    # Показываем главное меню
+    # Показываем главное меню с постоянной клавиатурой
     display_name = get_user_display_name(user_id)
     
     welcome_text = f"""
@@ -33,7 +33,7 @@ def handle_start(bot, message):
 Рад тебя видеть! Чем могу помочь?
 """
     
-    keyboard = main_menu_keyboard()
+    keyboard = main_reply_keyboard()  # Постоянная клавиатура внизу!
     bot.send_message(
         message.chat.id,
         welcome_text,
@@ -52,34 +52,96 @@ def handle_text(bot, message):
     # Обновляем активность
     update_user(user_id, {})
     
-    # TODO: Обработка других команд (шпаргалки, задания и т.д.)
-    text = message.text.lower()
+    text = message.text
     
-    if text in ['меню', 'главное меню', '/menu']:
-        return handle_start(bot, message)
+    # Обработка кнопок главного меню
+    if text == "📚 Шпаргалки":
+        bot.send_message(
+            message.chat.id,
+            "🔧 Шпаргалки в разработке!\n\nСкоро здесь будут все полезные материалы 📚"
+        )
+        return
+    
+    if text == "📅 Расписание":
+        bot.send_message(
+            message.chat.id,
+            "🔧 Расписание в разработке!\n\nСкоро покажу все занятия 📅"
+        )
+        return
+    
+    if text == "🎯 Задания":
+        bot.send_message(
+            message.chat.id,
+            "🔧 Задания в разработке!\n\nСкоро сможешь получать крутые задачи 🎯"
+        )
+        return
+    
+    if text == "👤 Профиль":
+        display_name = get_user_display_name(user_id)
+        profile_text = f"""
+👤 **Твой профиль:**
+
+• Имя: {user.get('first_name', '—')} {user.get('last_name', '—')}
+• Никнейм: {user.get('nickname', '—')}
+• Возраст: {user.get('age', '—')}
+• QR-код: {'✅ Загружен' if user.get('qr_code') else '⏳ Не загружен'}
+
+📊 Уровень: {user.get('level', 1)}
+⭐ XP: {user.get('xp', 0)}
+"""
+        bot.send_message(message.chat.id, profile_text, parse_mode='Markdown')
+        return
+    
+    if text == "📊 Прогресс":
+        bot.send_message(
+            message.chat.id,
+            f"📊 **Твой прогресс:**\n\n"
+            f"⭐ Уровень: {user.get('level', 1)}\n"
+            f"💎 XP: {user.get('xp', 0)}\n"
+            f"✅ Заданий выполнено: {user.get('tasks_completed', 0)}\n\n"
+            f"Продолжай в том же духе! 🚀",
+            parse_mode='Markdown'
+        )
+        return
+    
+    if text == "❓ Помощь":
+        help_text = """
+❓ **ПОМОЩЬ**
+
+**Что я умею:**
+
+📚 **Шпаргалки** - полезные материалы по фото, видео, монтажу
+📅 **Расписание** - все занятия медиацентра
+🎯 **Задания** - творческие задачи с наградами
+👤 **Профиль** - твои данные и прогресс
+📊 **Прогресс** - уровень и достижения
+
+**Команды:**
+/start - главное меню
+/stat - статистика (только для админа)
+
+Возникли вопросы? Пиши @admin 💬
+"""
+        bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
+        return
     
     # Если команда не распознана
+    if text.lower() in ['меню', 'главное меню', '/menu']:
+        return handle_start(bot, message)
+    
     bot.send_message(
         message.chat.id,
-        "🤔 Не совсем понял... Попробуй выбрать команду из меню!\n\n"
+        "🤔 Не совсем понял... Используй кнопки внизу! 👇\n\n"
         "Или напиши /start для главного меню"
     )
 
 def handle_callback(bot, call):
-    """Обработка нажатий на кнопки"""
+    """Обработка нажатий на inline кнопки"""
     user_id = call.from_user.id
     data = call.data
     
-    # 🐛 ОТЛАДКА: смотрим что приходит
-    print(f"🔍 CALLBACK: user={user_id}, data='{data}'")
-    
     # Обновляем активность
     update_user(user_id, {})
-    
-    # Выбор обращения (регистрация шаг 4)
-    if data in ['use_name', 'use_nickname']:
-        print(f"✅ Обрабатываем выбор обращения: {data}")
-        return handle_nickname_preference(bot, call)
     
     # Возврат в главное меню
     if data == 'main_menu':
@@ -104,9 +166,7 @@ def handle_callback(bot, call):
         bot.answer_callback_query(call.id)
         return handle_without_qr(bot, call.message)
     
-    # TODO: Другие callback'и (шпаргалки, задания и т.д.)
-    
-    print(f"⚠️ Неизвестный callback: {data}")
+    # TODO: Другие callback'и
     bot.answer_callback_query(call.id, "🔧 В разработке!")
 
 def handle_photo(bot, message):
