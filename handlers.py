@@ -184,6 +184,7 @@ def handle_calendar(bot, message):
     try:
         schedule = format_schedule_week(user_id)
         
+        # ✅ ИСПРАВЛЕНО: Добавлена inline-клавиатура!
         bot.send_message(
             message.chat.id,
             schedule,
@@ -192,6 +193,8 @@ def handle_calendar(bot, message):
         )
     except Exception as e:
         print(f"❌ Ошибка в handle_calendar: {e}")
+        import traceback
+        print(traceback.format_exc())
         bot.send_message(
             message.chat.id,
             "⚠️ Произошла ошибка при загрузке календаря.\nПопробуй ещё раз!",
@@ -208,6 +211,7 @@ def handle_tasks(bot, message):
         else:
             text = "📸 *ЗАДАНИЯ*\n\nСейчас нет активных заданий 🤷‍♂️\n\nСледи за обновлениями!"
         
+        # ✅ ИСПРАВЛЕНО: Добавлена inline-клавиатура!
         bot.send_message(
             message.chat.id,
             text,
@@ -216,6 +220,8 @@ def handle_tasks(bot, message):
         )
     except Exception as e:
         print(f"❌ Ошибка в handle_tasks: {e}")
+        import traceback
+        print(traceback.format_exc())
         bot.send_message(
             message.chat.id,
             "⚠️ Произошла ошибка при загрузке заданий.\nПопробуй ещё раз!",
@@ -252,6 +258,7 @@ def handle_leaderboard(bot, message):
             else:
                 text += f"📊 Твоя позиция: {user_rank} место"
         
+        # ✅ ИСПРАВЛЕНО: Добавлена inline-клавиатура!
         bot.send_message(
             message.chat.id,
             text,
@@ -260,6 +267,8 @@ def handle_leaderboard(bot, message):
         )
     except Exception as e:
         print(f"❌ Ошибка в handle_leaderboard: {e}")
+        import traceback
+        print(traceback.format_exc())
         bot.send_message(
             message.chat.id,
             "⚠️ Произошла ошибка при загрузке рейтинга.\nПопробуй ещё раз!",
@@ -282,14 +291,18 @@ def handle_callback(bot, call):
             except:
                 level_text = ""
             
-            bot.edit_message_text(
-                f"🎬 Йоу, {display_name}!\n\n"
-                f"{level_text}"
-                f"Что будем делать?",
-                call.message.chat.id,
-                call.message.message_id,
-                parse_mode='Markdown'
-            )
+            try:
+                bot.edit_message_text(
+                    f"🎬 Йоу, {display_name}!\n\n"
+                    f"{level_text}"
+                    f"Что будем делать?",
+                    call.message.chat.id,
+                    call.message.message_id,
+                    parse_mode='Markdown'
+                )
+            except:
+                pass
+            
             bot.send_message(
                 call.message.chat.id,
                 "Используй меню 👇",
@@ -320,13 +333,26 @@ def handle_callback(bot, call):
             bot.answer_callback_query(call.id)
             schedule = format_schedule_week(user_id)
             
-            bot.edit_message_text(
-                schedule,
-                call.message.chat.id,
-                call.message.message_id,
-                parse_mode='Markdown',
-                reply_markup=calendar_menu()
-            )
+            try:
+                bot.edit_message_text(
+                    schedule,
+                    call.message.chat.id,
+                    call.message.message_id,
+                    parse_mode='Markdown',
+                    reply_markup=calendar_menu()
+                )
+            except Exception as e:
+                print(f"Ошибка редактирования сообщения: {e}")
+                bot.send_message(
+                    call.message.chat.id,
+                    schedule,
+                    parse_mode='Markdown',
+                    reply_markup=calendar_menu()
+                )
+        
+        # Календарь - месяц
+        elif call.data == 'calendar_month':
+            bot.answer_callback_query(call.id, "📆 Расписание на месяц скоро будет!")
         
         # Рейтинг - топ 10
         elif call.data == 'leaderboard_top10':
@@ -346,13 +372,21 @@ def handle_callback(bot, call):
                 else:
                     text += f"{medal} {name} - {xp} XP\n"
             
-            bot.edit_message_text(
-                text,
-                call.message.chat.id,
-                call.message.message_id,
-                parse_mode='Markdown',
-                reply_markup=leaderboard_menu()
-            )
+            try:
+                bot.edit_message_text(
+                    text,
+                    call.message.chat.id,
+                    call.message.message_id,
+                    parse_mode='Markdown',
+                    reply_markup=leaderboard_menu()
+                )
+            except:
+                bot.send_message(
+                    call.message.chat.id,
+                    text,
+                    parse_mode='Markdown',
+                    reply_markup=leaderboard_menu()
+                )
         
         # Моя позиция в рейтинге
         elif call.data == 'my_rank':
@@ -365,13 +399,53 @@ def handle_callback(bot, call):
             text += f"⭐ Опыт: {stats['xp']} XP\n"
             text += f"📈 Уровень: {stats['level']} - {stats['level_name']}"
             
-            bot.edit_message_text(
-                text,
-                call.message.chat.id,
-                call.message.message_id,
-                parse_mode='Markdown',
-                reply_markup=leaderboard_menu()
-            )
+            try:
+                bot.edit_message_text(
+                    text,
+                    call.message.chat.id,
+                    call.message.message_id,
+                    parse_mode='Markdown',
+                    reply_markup=leaderboard_menu()
+                )
+            except:
+                bot.send_message(
+                    call.message.chat.id,
+                    text,
+                    parse_mode='Markdown',
+                    reply_markup=leaderboard_menu()
+                )
+        
+        # Задания
+        elif call.data == 'current_task':
+            bot.answer_callback_query(call.id)
+            task = get_active_task()
+            
+            if task:
+                text = format_task_message(task)
+            else:
+                text = "📸 Сейчас нет активных заданий 🤷‍♂️"
+            
+            try:
+                bot.edit_message_text(
+                    text,
+                    call.message.chat.id,
+                    call.message.message_id,
+                    parse_mode='Markdown',
+                    reply_markup=tasks_menu()
+                )
+            except:
+                bot.send_message(
+                    call.message.chat.id,
+                    text,
+                    parse_mode='Markdown',
+                    reply_markup=tasks_menu()
+                )
+        
+        elif call.data == 'all_tasks':
+            bot.answer_callback_query(call.id, "📋 Список всех заданий скоро будет!")
+        
+        elif call.data == 'my_tasks':
+            bot.answer_callback_query(call.id, "✅ Твои работы скоро будут доступны!")
         
         # Тесты (заглушки)
         elif call.data == 'test_camera':
@@ -388,6 +462,8 @@ def handle_callback(bot, call):
             
     except Exception as e:
         print(f"❌ Ошибка в handle_callback: {e}")
+        import traceback
+        print(traceback.format_exc())
         bot.answer_callback_query(call.id, "⚠️ Произошла ошибка")
 
 # ========== ОБРАБОТКА ФОТО (для QR-кода и заданий) ==========
