@@ -90,3 +90,22 @@ def nickname_preference_keyboard(first_name, nickname):
         types.InlineKeyboardButton(f'По нику ({nickname})', callback_data='prefer_nickname')
     )
     return keyboard
+    
+# === ГЛАВНОЕ МЕНЮ ===
+
+def main_menu_keyboard():
+    """Главное меню после регистрации"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    buttons = [
+        types.InlineKeyboardButton("📚 Шпаргалки", callback_data="cheatsheets"),
+        types.InlineKeyboardButton("📅 Расписание", callback_data="schedule"),
+        types.InlineKeyboardButton("🎯 Задания", callback_data="tasks"),
+        types.InlineKeyboardButton("👤 Мой профиль", callback_data="profile"),
+        types.InlineKeyboardButton("📊 Мой прогресс", callback_data="my_stats"),
+        types.InlineKeyboardButton("❓ Помощь", callback_data="help")
+    ]
+    
+    markup.add(*buttons)
+    return markup
+
