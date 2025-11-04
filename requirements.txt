@@ -1,11 +1,9 @@
-pyTelegramBotAPI
-openai
 pyTelegramBotAPI==4.29.1
-requests==2.32.5
 openai==2.6.1
+requests==2.32.5
 APScheduler==3.10.4
-schedule
-
+schedule==1.2.0
+python-dotenv
 
 
 
