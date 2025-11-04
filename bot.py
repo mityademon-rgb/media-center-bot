@@ -14,7 +14,7 @@ from handlers import (
 )
 
 # Токен бота (прописан прямо в коде)
-BOT_TOKEN = os.getenv('BOT_TOKEN', '7868804206:AAHKvlxSGWuo3nWUVKqeFYCvAKfJwn2H4Tc')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '8473634161:AAHv_fbBnQ37TboA9LuHCWwgLpjo66daSlA')
 
 # Инициализация бота
 bot = telebot.TeleBot(BOT_TOKEN)
