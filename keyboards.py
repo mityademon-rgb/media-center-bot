@@ -108,7 +108,6 @@ def schedule_keyboard():
     buttons = [
         types.InlineKeyboardButton("📅 На эту неделю", callback_data="schedule_week"),
         types.InlineKeyboardButton("📆 На месяц", callback_data="schedule_month"),
-        types.InlineKeyboardButton("🔔 Мои напоминания", callback_data="my_reminders"),
         types.InlineKeyboardButton("◀️ Назад", callback_data="main_menu")
     ]
     
