@@ -136,8 +136,6 @@ def handle_schedule_week(bot, message):
     for event in events:
         text += format_event(event) + "\n"
     
-    text += "\n💡 _Не забудь подписаться на напоминания!_"
-    
     bot.send_message(
         message.chat.id,
         text,
