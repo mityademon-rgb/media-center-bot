@@ -18,7 +18,7 @@ from registration import (
 from admin import handle_stat, handle_export_db, handle_without_qr, is_admin
 
 # ============ ИМПОРТЫ РАСПИСАНИЯ ============
-from schedule import (
+from schedule_module import (
     handle_schedule_week,
     handle_schedule_month,
     handle_add_event_start,
