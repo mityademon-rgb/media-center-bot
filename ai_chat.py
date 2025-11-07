@@ -88,11 +88,11 @@ def handle_ai_question(bot, message):
     # Получаем историю
     history = user_conversations.get(user_id, [])
     
-    # Получаем ответ от YandexGPT
-    if history:
-        answer = ask_with_context(question, history)
-    else:
-        answer = ask_yandex_gpt(question)
+    # Получаем ответ от OpenAI GPT
+if history:
+    answer = ask_gpt_with_context(question, history)
+else:
+    answer = ask_gpt(question)
     
     # Удаляем сообщение "Думаю..."
     try:
@@ -223,7 +223,7 @@ def handle_predefined_question(bot, call):
     bot.send_chat_action(call.message.chat.id, 'typing')
     
     # Получаем ответ
-    answer = ask_yandex_gpt(question)
+    answer = ask_gpt(question)
     
     # Сохраняем в историю
     user_id = call.from_user.id
