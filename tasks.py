@@ -629,9 +629,20 @@ def handle_task_submission(bot, message):
 
 def handle_task_approve(bot, call):
     """Принять задание (админ)"""
-    parts = call.data.split('_')
-    user_id = int(parts[1])
-    task_id = parts[2]
+    try:
+        # Парсим callback_data: "approve_USER_ID_task_001"
+        parts = call.data.split('_')
+        user_id = int(parts[1])
+        task_id = '_'.join(parts[2:])  # task_001, task_002 и т.д.
+        
+        print(f"✅ Одобрение: user_id={user_id}, task_id={task_id}")
+        
+    except Exception as e:
+        print(f"❌ Ошибка парсинга: {call.data}, error: {e}")
+        bot.answer_callback_query(call.id, "❌ Ошибка парсинга данных")
+        return
+Копировать
+
     
     task = get_task_by_id(task_id)
     if not task:
