@@ -2,6 +2,12 @@
 РОУТЕР КОМАНД И СООБЩЕНИЙ
 Направляет запросы в соответствующие блоки
 """
+from ai_chat import (
+    handle_ai_chat_menu, handle_ai_ask, handle_ai_question,
+    handle_ai_camera, handle_ai_journalism, handle_predefined_question,
+    handle_ai_clear, waiting_for_question
+)
+
 from database import get_user, is_registered, update_user, get_user_display_name
 from registration import (
     handle_start_registration,
@@ -54,6 +60,14 @@ def handle_text(bot, message):
     # Если регистрация не завершена - направляем в регистрацию
     if not user or not is_registered(user_id):
         return handle_registration_step(bot, message)
+        # После других условий в handle_text:
+elif text == "🤖 AI-Помощник":
+    handle_ai_chat_menu(bot, message)
+
+# Проверка на вопросы AI
+elif message.from_user.id in waiting_for_question:
+    handle_ai_question(bot, message)
+
     
     # Проверяем добавление события (админ)
     if user.get('adding_event'):
@@ -186,6 +200,20 @@ def handle_callback(bot, call):
         )
         bot.answer_callback_query(call.id)
         return
+        # В handle_callback:
+elif data == "ai_menu":
+    handle_ai_chat_menu(bot, call.message)
+elif data == "ai_ask":
+    handle_ai_ask(bot, call)
+elif data == "ai_camera":
+    handle_ai_camera(bot, call)
+elif data == "ai_journalism":
+    handle_ai_journalism(bot, call)
+elif data == "ai_clear":
+    handle_ai_clear(bot, call)
+elif data.startswith("ai_q_") or data.startswith("ai_j_"):
+    handle_predefined_question(bot, call)
+
     
     # Админские команды
     if data == 'admin_export_db':
