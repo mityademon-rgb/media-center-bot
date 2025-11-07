@@ -2,7 +2,7 @@
 AI-чат с OpenAI GPT
 """
 import telebot
-from openai_gpt import ask_gpt, ask_gpt_with_context  # ← ИЗМЕНИЛИ ЭТУ СТРОКУ
+from openai_gpt import ask_gpt, ask_gpt_with_context
 from keyboards import back_to_menu_keyboard
 
 # История диалогов (в памяти, по user_id)
@@ -89,10 +89,10 @@ def handle_ai_question(bot, message):
     history = user_conversations.get(user_id, [])
     
     # Получаем ответ от OpenAI GPT
-if history:
-    answer = ask_gpt_with_context(question, history)
-else:
-    answer = ask_gpt(question)
+    if history:
+        answer = ask_gpt_with_context(question, history)
+    else:
+        answer = ask_gpt(question)
     
     # Удаляем сообщение "Думаю..."
     try:
