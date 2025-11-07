@@ -60,14 +60,10 @@ def handle_text(bot, message):
     # Если регистрация не завершена - направляем в регистрацию
     if not user or not is_registered(user_id):
         return handle_registration_step(bot, message)
-        # После других условий в handle_text:
-elif text == "🤖 AI-Помощник":
-    handle_ai_chat_menu(bot, message)
-
-# Проверка на вопросы AI
-elif message.from_user.id in waiting_for_question:
-    handle_ai_question(bot, message)
-
+    
+    # Проверка на вопросы AI
+    if user_id in waiting_for_question:
+        return handle_ai_question(bot, message)
     
     # Проверяем добавление события (админ)
     if user.get('adding_event'):
@@ -78,6 +74,11 @@ elif message.from_user.id in waiting_for_question:
     update_user(user_id, {})
     
     text = message.text
+    
+    # AI-Помощник
+    if text == "🤖 AI-Помощник":
+        handle_ai_chat_menu(bot, message)
+        return
     
     # Обработка кнопок главного меню
     if text == "📚 Шпаргалки":
@@ -145,6 +146,7 @@ elif message.from_user.id in waiting_for_question:
 🎯 **Задания** - творческие задачи с наградами
 👤 **Профиль** - твои данные и прогресс
 📊 **Прогресс** - уровень и достижения
+🤖 **AI-Помощник** - задай любой вопрос
 
 **Команды:**
 /start - главное меню
@@ -174,6 +176,32 @@ def handle_callback(bot, call):
     # Обновляем активность
     update_user(user_id, {})
     
+    # AI-ЧАТ
+    if data == "ai_menu":
+        handle_ai_chat_menu(bot, call.message)
+        bot.answer_callback_query(call.id)
+        return
+    
+    if data == "ai_ask":
+        handle_ai_ask(bot, call)
+        return
+    
+    if data == "ai_camera":
+        handle_ai_camera(bot, call)
+        return
+    
+    if data == "ai_journalism":
+        handle_ai_journalism(bot, call)
+        return
+    
+    if data == "ai_clear":
+        handle_ai_clear(bot, call)
+        return
+    
+    if data.startswith("ai_q_") or data.startswith("ai_j_"):
+        handle_predefined_question(bot, call)
+        return
+    
     # РАСПИСАНИЕ
     if data == 'schedule_week':
         bot.answer_callback_query(call.id)
@@ -200,20 +228,6 @@ def handle_callback(bot, call):
         )
         bot.answer_callback_query(call.id)
         return
-        # В handle_callback:
-elif data == "ai_menu":
-    handle_ai_chat_menu(bot, call.message)
-elif data == "ai_ask":
-    handle_ai_ask(bot, call)
-elif data == "ai_camera":
-    handle_ai_camera(bot, call)
-elif data == "ai_journalism":
-    handle_ai_journalism(bot, call)
-elif data == "ai_clear":
-    handle_ai_clear(bot, call)
-elif data.startswith("ai_q_") or data.startswith("ai_j_"):
-    handle_predefined_question(bot, call)
-
     
     # Админские команды
     if data == 'admin_export_db':
