@@ -10,7 +10,7 @@ def main_reply_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     
     buttons = [
-        types.KeyboardButton("📚 Шпаргалки"),
+    
         types.KeyboardButton("📅 Расписание"),
         types.KeyboardButton("🎯 Задания"),
         types.KeyboardButton("👤 Профиль"),
@@ -50,7 +50,7 @@ def main_menu_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=2)
     
     buttons = [
-        types.InlineKeyboardButton("📚 Шпаргалки", callback_data="cheatsheets"),
+        
         types.InlineKeyboardButton("📅 Расписание", callback_data="schedule"),
         types.InlineKeyboardButton("🎯 Задания", callback_data="tasks"),
         types.InlineKeyboardButton("👤 Мой профиль", callback_data="profile"),
