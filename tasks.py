@@ -685,9 +685,19 @@ def handle_task_approve(bot, call):
 
 def handle_task_reject(bot, call):
     """Отклонить задание (админ)"""
-    parts = call.data.split('_')
-    user_id = int(parts[1])
-    task_id = parts[2]
+    try:
+        # Парсим callback_data: "reject_USER_ID_task_001"
+        parts = call.data.split('_')
+        user_id = int(parts[1])
+        task_id = '_'.join(parts[2:])  # task_001, task_002 и т.д.
+        
+        print(f"❌ Отклонение: user_id={user_id}, task_id={task_id}")
+        
+    except Exception as e:
+        print(f"❌ Ошибка парсинга: {call.data}, error: {e}")
+        bot.answer_callback_query(call.id, "❌ Ошибка парсинга данных")
+        return
+
     
     task = get_task_by_id(task_id)
     if not task:
