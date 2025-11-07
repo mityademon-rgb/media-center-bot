@@ -792,7 +792,16 @@ def handle_completed_tasks(bot, call):
     for task_id in completed:
         task = get_task_by_id(task_id)
         if task:
-            emoji = {"photo": "📸", "video": "🎥", "ai": "🤖"}.get(task['type'], "📋")
+            task_type = task.get('type', 'unknown')
+            if task_type == "photo":
+                emoji = "📸"
+            elif task_type == "video":
+                emoji = "🎥"
+            elif task_type == "ai":
+                emoji = "🤖"
+            else:
+                emoji = "📋"
+            
             completed_list.append(f"{emoji} {task['title']} (+{task['xp_reward']} XP)")
             total_xp += task['xp_reward']
     
@@ -825,18 +834,23 @@ def handle_tasks_progress(bot, call):
     filled = int((progress['xp'] % 100) / 10)
     bar = "▓" * filled + "░" * (bar_length - filled)
     
-    text = f"""
-📊 **ТВОЙ ПРОГРЕСС**
+    xp_val = progress['xp']
+    level_val = progress['level']
+    xp_next = progress['xp_to_next']
+    completed_val = progress['completed_count']
+    available_val = progress['available_count']
+    
+    text = f"""📊 **ТВОЙ ПРОГРЕСС**
 
-{emoji} **Уровень:** {progress['level']}/10
+{emoji} **Уровень:** {level_val}/10
 
-⭐ **Опыт:** {progress['xp']} XP
+⭐ **Опыт:** {xp_val} XP
 {bar}
-До след. уровня: {progress['xp_to_next']} XP
+До след. уровня: {xp_next} XP
 
 📋 **Задания:**
-✅ Выполнено: {progress['completed_count']}
-📝 Доступно: {progress['available_count']}
+✅ Выполнено: {completed_val}
+📝 Доступно: {available_val}
 
 💡 Продолжай в том же духе!
 """
@@ -856,8 +870,7 @@ def handle_tasks_progress(bot, call):
 
 def handle_tasks_help(bot, call):
     """Помощь по системе заданий"""
-    text = """
-❓ **КАК РАБОТАЕТ СИСТЕМА ЗАДАНИЙ**
+    text = """❓ **КАК РАБОТАЕТ СИСТЕМА ЗАДАНИЙ**
 
 **🎯 УРОВНИ:**
 • Начинаешь с 1 уровня
