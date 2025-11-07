@@ -16,7 +16,16 @@ from registration import (
     handle_qr_photo
 )
 from admin import handle_stat, handle_export_db, handle_without_qr, is_admin
-from keyboards import main_reply_keyboard, main_menu_keyboard
+
+# ============ ИМПОРТЫ РАСПИСАНИЯ ============
+from schedule import (
+    handle_schedule_week,
+    handle_schedule_month,
+    handle_add_event_start,
+    handle_add_event_step
+)
+
+from keyboards import main_reply_keyboard, main_menu_keyboard, schedule_keyboard
 
 # ============ ИМПОРТЫ ЗАДАНИЙ ============
 from tasks import (
@@ -44,6 +53,7 @@ def handle_start(bot, message):
     
     # Обновляем активность
     update_user(user_id, {})
+
 
     # Показываем главное меню с постоянной клавиатурой
     display_name = get_user_display_name(user_id)
