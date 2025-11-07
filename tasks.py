@@ -637,50 +637,47 @@ def handle_task_approve(bot, call):
         
         print(f"✅ Одобрение: user_id={user_id}, task_id={task_id}")
         
-    except Exception as e:
-        print(f"❌ Ошибка парсинга: {call.data}, error: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка парсинга данных")
-        return
-Копировать
-
-    
-    task = get_task_by_id(task_id)
-    if not task:
-        bot.answer_callback_query(call.id, "❌ Задание не найдено")
-        return
-    
-    # Засчитываем задание
-    result = complete_task(user_id, task_id)
-    
-    if not result:
-        bot.answer_callback_query(call.id, "❌ Задание уже выполнено")
-        return
-    
-    # Уведомляем ученика
-    reward_text = f"""✅ **ЗАДАНИЕ ЗАСЧИТАНО!**
+        task = get_task_by_id(task_id)
+        if not task:
+            bot.answer_callback_query(call.id, "❌ Задание не найдено")
+            return
+        
+        # Засчитываем задание
+        result = complete_task(user_id, task_id)
+        
+        if not result:
+            bot.answer_callback_query(call.id, "❌ Задание уже выполнено")
+            return
+        
+        # Уведомляем ученика
+        reward_text = f"""✅ **ЗАДАНИЕ ЗАСЧИТАНО!**
 
 🎯 Задание: {task['title']}
 ⭐ Получено: +{result['xp_gained']} XP
 📊 Всего XP: {result['new_xp']}
 """
-    
-    if result['level_up']:
-        level_emoji = ["🌱", "🌿", "🌳", "🌲", "🎯", "⭐", "💎", "🏆", "👑", "🔥"]
-        emoji = level_emoji[min(result['new_level']-1, 9)]
-        reward_text += f"\n\n🎉 **НОВЫЙ УРОВЕНЬ!** {emoji}\n{result['old_level']} → {result['new_level']}"
-    
-    reward_text += "\n\nТак держать! 🔥"
-    
-    bot.send_message(user_id, reward_text, parse_mode='Markdown')
-    
-    # Подтверждение админу
-    bot.edit_message_text(
-        call.message.text + "\n\n✅ **ПРИНЯТО**",
-        call.message.chat.id,
-        call.message.message_id,
-        parse_mode='Markdown'
-    )
-    bot.answer_callback_query(call.id, "✅ Задание засчитано!")
+        
+        if result['level_up']:
+            level_emoji = ["🌱", "🌿", "🌳", "🌲", "🎯", "⭐", "💎", "🏆", "👑", "🔥"]
+            emoji = level_emoji[min(result['new_level']-1, 9)]
+            reward_text += f"\n\n🎉 **НОВЫЙ УРОВЕНЬ!** {emoji}\n{result['old_level']} → {result['new_level']}"
+        
+        reward_text += "\n\nТак держать! 🔥"
+        
+        bot.send_message(user_id, reward_text, parse_mode='Markdown')
+        
+        # Подтверждение админу
+        bot.edit_message_text(
+            call.message.text + "\n\n✅ **ПРИНЯТО**",
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode='Markdown'
+        )
+        bot.answer_callback_query(call.id, "✅ Задание засчитано!")
+        
+    except Exception as e:
+        print(f"❌ Ошибка в handle_task_approve: {e}")
+        bot.answer_callback_query(call.id, f"❌ Ошибка: {e}")
 
 
 def handle_task_reject(bot, call):
@@ -693,33 +690,31 @@ def handle_task_reject(bot, call):
         
         print(f"❌ Отклонение: user_id={user_id}, task_id={task_id}")
         
+        task = get_task_by_id(task_id)
+        if not task:
+            bot.answer_callback_query(call.id, "❌ Задание не найдено")
+            return
+        
+        # Уведомляем ученика
+        bot.send_message(
+            user_id,
+            f"❌ **Задание отклонено**\n\n🎯 {task['title']}\n\n"
+            f"💬 Дмитрий Витальевич напишет тебе комментарий",
+            parse_mode='Markdown'
+        )
+        
+        # Подтверждение админу
+        bot.edit_message_text(
+            call.message.text + "\n\n❌ **ОТКЛОНЕНО**",
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode='Markdown'
+        )
+        bot.answer_callback_query(call.id, "❌ Отклонено, напиши причину юзеру")
+        
     except Exception as e:
-        print(f"❌ Ошибка парсинга: {call.data}, error: {e}")
-        bot.answer_callback_query(call.id, "❌ Ошибка парсинга данных")
-        return
-
-    
-    task = get_task_by_id(task_id)
-    if not task:
-        bot.answer_callback_query(call.id, "❌ Задание не найдено")
-        return
-    
-    # Уведомляем ученика
-    bot.send_message(
-        user_id,
-        f"❌ **Задание отклонено**\n\n🎯 {task['title']}\n\n"
-        f"💬 Дмитрий Витальевич напишет тебе комментарий",
-        parse_mode='Markdown'
-    )
-    
-    # Подтверждение админу
-    bot.edit_message_text(
-        call.message.text + "\n\n❌ **ОТКЛОНЕНО**",
-        call.message.chat.id,
-        call.message.message_id,
-        parse_mode='Markdown'
-    )
-    bot.answer_callback_query(call.id, "❌ Отклонено, напиши причину юзеру")
+        print(f"❌ Ошибка в handle_task_reject: {e}")
+        bot.answer_callback_query(call.id, f"❌ Ошибка: {e}")
 
 
 def handle_completed_tasks(bot, call):
