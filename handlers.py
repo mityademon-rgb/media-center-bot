@@ -67,8 +67,18 @@ def handle_start(bot, message):
         reply_markup=keyboard
     )
 
-def handle_text(bot, message):
+def handle_message(bot, message):
     """Обработка текстовых сообщений"""
+    
+    # Проверяем комментарий от админа
+    from tasks import handle_admin_comment
+    if handle_admin_comment(bot, message):
+        return
+    
+    # Проверяем отправку задания
+    from tasks import handle_task_submission
+    if handle_task_submission(bot, message):
+        return
     user_id = message.from_user.id
     user = get_user(user_id)
     
