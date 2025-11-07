@@ -432,3 +432,472 @@ def handle_tasks_menu(bot, message):
 """
     
     bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode='Markdown')
+
+def handle_available_tasks(bot, call):
+    """Показать доступные задания"""
+    user_id = call.from_user.id
+    progress = get_user_progress(user_id)
+    available = progress['available_tasks']
+    
+    if not available:
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton("◀️ Назад", callback_data="tasks_menu"))
+        
+        bot.edit_message_text(
+            "🎉 **Все доступные задания выполнены!**\n\nЖди новое задание или повышай уровень!",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=markup,
+            parse_mode='Markdown'
+        )
+        bot.answer_callback_query(call.id)
+        return
+    
+    markup = telebot.types.InlineKeyboardMarkup(row_width=1)
+    
+    # Группируем задания по choice_group если есть
+    if progress['level'] >= 3:
+        groups = {}
+        for task in available:
+            group = task.get('choice_group', 0)
+            if group not in groups:
+                groups[group] = []
+            groups[group].append(task)
+        
+        # Показываем задания
+        for group_id in sorted(groups.keys()):
+            tasks = groups[group_id]
+            
+            if len(tasks) > 1:
+                # Группа выбора
+                for task in tasks:
+                    emoji = {"photo": "📸", "video": "🎥", "ai": "🤖"}.get(task['type'], "📋")
+                    markup.add(telebot.types.InlineKeyboardButton(
+                        f"{emoji} {task['title']} (+{task['xp_reward']} XP)",
+                        callback_data=f"task_view_{task['id']}"
+                    ))
+                markup.add(telebot.types.InlineKeyboardButton("⬇️ Выбери одно из заданий выше ⬇️", callback_data="dummy"))
+            else:
+                # Одиночное задание
+                task = tasks[0]
+                emoji = {"photo": "📸", "video": "🎥", "ai": "🤖"}.get(task['type'], "📋")
+                markup.add(telebot.types.InlineKeyboardButton(
+                    f"{emoji} {task['title']} (+{task['xp_reward']} XP)",
+                    callback_data=f"task_view_{task['id']}"
+                ))
+    else:
+        # Для уровня 1-2: одно задание
+        for task in available:
+            emoji = {"photo": "📸", "video": "🎥", "ai": "🤖"}.get(task['type'], "📋")
+            markup.add(telebot.types.InlineKeyboardButton(
+                f"{emoji} {task['title']} (+{task['xp_reward']} XP)",
+                callback_data=f"task_view_{task['id']}"
+            ))
+    
+    markup.add(telebot.types.InlineKeyboardButton("◀️ Назад", callback_data="tasks_menu"))
+    
+    choice_text = ""
+    if progress['level'] >= 3:
+        choice_text = "\n\n💡 Можешь выбрать любое задание из доступных!"
+    
+    text = f"""
+📋 **ДОСТУПНЫЕ ЗАДАНИЯ**
+
+У тебя {len(available)} доступных заданий{choice_text}
+"""
+    
+    bot.edit_message_text(
+        text,
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=markup,
+        parse_mode='Markdown'
+    )
+    bot.answer_callback_query(call.id)
+
+
+def handle_task_view(bot, call):
+    """Показать детали задания"""
+    task_id = call.data.replace("task_view_", "")
+    task = get_task_by_id(task_id)
+    
+    if not task:
+        bot.answer_callback_query(call.id, "❌ Задание не найдено")
+        return
+    
+    user_id = call.from_user.id
+    
+    # Эмодзи типа
+    emoji = {"photo": "📸", "video": "🎥", "ai": "🤖"}.get(task['type'], "📋")
+    
+    # Формируем текст
+    text = f"""
+{emoji} **{task['title']}**
+
+{task['description']}
+
+---
+
+📝 **Как выполнить:**
+{task['instructions']}
+
+⭐ **Награда:** +{task['xp_reward']} XP
+"""
+    
+    # Добавляем пример промпта для AI-заданий
+    if task['type'] == 'ai' and 'ai_prompt_example' in task:
+        text += f"\n\n💡 **Пример промпта:**\n`{task['ai_prompt_example']}`"
+    
+    markup = telebot.types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        telebot.types.InlineKeyboardButton("✅ Отправить выполнение", callback_data=f"task_submit_{task_id}"),
+        telebot.types.InlineKeyboardButton("◀️ Назад к заданиям", callback_data="tasks_available")
+    )
+    
+    bot.edit_message_text(
+        text,
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=markup,
+        parse_mode='Markdown'
+    )
+    bot.answer_callback_query(call.id)
+
+
+def handle_task_submit(bot, call):
+    """Подготовка к отправке выполнения"""
+    task_id = call.data.replace("task_submit_", "")
+    task = get_task_by_id(task_id)
+    
+    if not task:
+        bot.answer_callback_query(call.id, "❌ Задание не найдено")
+        return
+    
+    user_id = call.from_user.id
+    
+    # Сохраняем что пользователь отправляет задание
+    if user_id not in waiting_for_task_submission:
+        waiting_for_task_submission[user_id] = {}
+    waiting_for_task_submission[user_id] = task_id
+    
+    emoji = {"photo": "📸", "video": "🎥", "ai": "🤖"}.get(task['type'], "📋")
+    
+    if task['type'] == 'photo':
+        instruction = "📸 **Отправь фото** (или несколько) в следующем сообщении"
+    elif task['type'] == 'video':
+        instruction = "🎥 **Отправь видео** в следующем сообщении"
+    else:  # ai
+        instruction = "📝 **Отправь текст** (результат работы с AI) в следующем сообщении"
+    
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("❌ Отмена", callback_data="tasks_available"))
+    
+    text = f"""
+{emoji} **{task['title']}**
+
+{instruction}
+
+💡 После отправки задание отправится на проверку Дмитрию Витальевичу
+"""
+    
+    bot.edit_message_text(
+        text,
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=markup,
+        parse_mode='Markdown'
+    )
+    bot.answer_callback_query(call.id)
+
+
+# Хранилище ожиданий отправки
+waiting_for_task_submission = {}
+
+
+def handle_task_submission(bot, message):
+    """Обработка отправленного задания"""
+    user_id = message.from_user.id
+    
+    # Проверяем что пользователь в режиме отправки
+    if user_id not in waiting_for_task_submission:
+        return False
+    
+    task_id = waiting_for_task_submission[user_id]
+    task = get_task_by_id(task_id)
+    
+    if not task:
+        del waiting_for_task_submission[user_id]
+        return False
+    
+    user = get_user(user_id)
+    username = user.get('username', 'Без имени')
+    
+    # Получаем ID админа (Дмитрий Витальевич)
+    # ЗАМЕНИ на свой Telegram ID!
+    ADMIN_ID = 123456789  # ← ТВОЙ TELEGRAM ID
+    
+    # Формируем сообщение админу
+    admin_text = f"""
+📥 **НОВОЕ ВЫПОЛНЕНИЕ ЗАДАНИЯ**
+
+👤 **От:** {username} (ID: {user_id})
+🎯 **Задание:** {task['title']}
+⭐ **Награда:** {task['xp_reward']} XP
+
+📝 **Тип:** {{"photo": "Фото", "video": "Видео", "ai": "AI-работа"}.get(task['type'])}
+"""
+    
+    # Пересылаем контент админу
+    try:
+        if message.content_type == 'photo':
+            bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=admin_text, parse_mode='Markdown')
+        elif message.content_type == 'video':
+            bot.send_video(ADMIN_ID, message.video.file_id, caption=admin_text, parse_mode='Markdown')
+        elif message.content_type == 'text':
+            bot.send_message(ADMIN_ID, admin_text + f"\n\n💬 **Текст:**\n{message.text}", parse_mode='Markdown')
+        
+        # Кнопки одобрения/отклонения
+        markup = telebot.types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            telebot.types.InlineKeyboardButton("✅ Принять", callback_data=f"approve_{user_id}_{task_id}"),
+            telebot.types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{user_id}_{task_id}")
+        )
+        bot.send_message(ADMIN_ID, "⬆️ Проверь выполнение:", reply_markup=markup)
+        
+    except Exception as e:
+        print(f"Ошибка отправки админу: {e}")
+    
+    # Убираем из режима ожидания
+    del waiting_for_task_submission[user_id]
+    
+    # Подтверждение пользователю
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("🎯 Мои задания", callback_data="tasks_menu"))
+    
+    bot.send_message(
+        message.chat.id,
+        f"✅ **Задание отправлено на проверку!**\n\n🎯 Задание: {task['title']}\n⏳ Жди результата от Дмитрия Витальевича",
+        reply_markup=markup,
+        parse_mode='Markdown'
+    )
+    
+    return True
+
+
+def handle_task_approve(bot, call):
+    """Админ одобряет задание"""
+    parts = call.data.split("_")
+    user_id = int(parts[1])
+    task_id = parts[2]
+    
+    # Засчитываем задание
+    result = complete_task(user_id, task_id)
+    
+    if not result:
+        bot.answer_callback_query(call.id, "❌ Ошибка")
+        return
+    
+    task = get_task_by_id(task_id)
+    
+    # Уведомляем пользователя
+    level_up_text = ""
+    if result['level_up']:
+        level_up_text = f"\n\n🎉 **УРОВЕНЬ ПОВЫШЕН!** Теперь ты {result['new_level']} уровня!"
+        
+        # Особое сообщение при достижении 3 уровня
+        if result['new_level'] == 3:
+            level_up_text += "\n\n🎯 **Теперь ты можешь выбирать задания!**"
+    
+    user_text = f"""
+✅ **ЗАДАНИЕ ЗАСЧИТАНО!**
+
+🎯 Задание: {task['title']}
+⭐ Получено: +{result['xp_gained']} XP
+📊 Всего XP: {result['new_xp']}{level_up_text}
+
+Так держать! 🔥
+"""
+    
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("📋 Следующее задание", callback_data="tasks_available"))
+    
+    bot.send_message(user_id, user_text, reply_markup=markup, parse_mode='Markdown')
+    
+    # Подтверждение админу
+    bot.edit_message_text(
+        call.message.text + "\n\n✅ **ПРИНЯТО**",
+        call.message.chat.id,
+        call.message.message_id,
+        parse_mode='Markdown'
+    )
+    bot.answer_callback_query(call.id, "✅ Задание засчитано!")
+
+
+def handle_task_reject(bot, call):
+    """Админ отклоняет задание"""
+    parts = call.data.split("_")
+    user_id = int(parts[1])
+    task_id = parts[2]
+    
+    task = get_task_by_id(task_id)
+    
+    # Уведомляем пользователя
+    user_text = f"""
+❌ **Задание не принято**
+
+🎯 Задание: {task['title']}
+
+💬 Дмитрий Витальевич оставит комментарий. Исправь и отправь снова!
+"""
+    
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("🔄 К заданию", callback_data=f"task_view_{task_id}"))
+    
+    bot.send_message(user_id, user_text, reply_markup=markup, parse_mode='Markdown')
+    
+    # Подтверждение админу
+    bot.edit_message_text(
+        call.message.text + "\n\n❌ **ОТКЛОНЕНО**",
+        call.message.chat.id,
+        call.message.message_id,
+        parse_mode='Markdown'
+    )
+    bot.answer_callback_query(call.id, "❌ Отклонено, напиши причину юзеру")
+
+
+def handle_completed_tasks(bot, call):
+    """Показать выполненные задания"""
+    user_id = call.from_user.id
+    user = get_user(user_id)
+    completed = user.get('completed_tasks', [])
+    
+    if not completed:
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton("◀️ Назад", callback_data="tasks_menu"))
+        
+        bot.edit_message_text(
+            "📭 **Пока нет выполненных заданий**\n\nНачни с первого задания!",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=markup,
+            parse_mode='Markdown'
+        )
+        bot.answer_callback_query(call.id)
+        return
+    
+    # Собираем выполненные задания
+    completed_list = []
+    total_xp = 0
+    
+    for task_id in completed:
+        task = get_task_by_id(task_id)
+        if task:
+            emoji = {"photo": "📸", "video": "🎥", "ai": "🤖"}.get(task['type'], "📋")
+            completed_list.append(f"{emoji} {task['title']} (+{task['xp_reward']} XP)")
+            total_xp += task['xp_reward']
+    
+    text = "✅ **ВЫПОЛНЕННЫЕ ЗАДАНИЯ**\n\n" + "\n".join(completed_list)
+    text += f"\n\n💰 **Всего заработано:** {total_xp} XP"
+    
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("◀️ Назад", callback_data="tasks_menu"))
+    
+    bot.edit_message_text(
+        text,
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=markup,
+        parse_mode='Markdown'
+    )
+    bot.answer_callback_query(call.id)
+
+
+def handle_tasks_progress(bot, call):
+    """Показать прогресс"""
+    user_id = call.from_user.id
+    progress = get_user_progress(user_id)
+    
+    level_emoji = ["🌱", "🌿", "🌳", "🌲", "🎯", "⭐", "💎", "🏆", "👑", "🔥"]
+    emoji = level_emoji[min(progress['level']-1, 9)]
+    
+    # Прогресс-бар
+    bar_length = 10
+    filled = int((progress['xp'] % 100) / 10)
+    bar = "▓" * filled + "░" * (bar_length - filled)
+    
+    text = f"""
+📊 **ТВОЙ ПРОГРЕСС**
+
+{emoji} **Уровень:** {progress['level']}/10
+
+⭐ **Опыт:** {progress['xp']} XP
+{bar}
+До след. уровня: {progress['xp_to_next']} XP
+
+📋 **Задания:**
+✅ Выполнено: {progress['completed_count']}
+📝 Доступно: {progress['available_count']}
+
+💡 Продолжай в том же духе!
+"""
+    
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("◀️ Назад", callback_data="tasks_menu"))
+    
+    bot.edit_message_text(
+        text,
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=markup,
+        parse_mode='Markdown'
+    )
+    bot.answer_callback_query(call.id)
+
+
+def handle_tasks_help(bot, call):
+    """Помощь по системе заданий"""
+    text = """
+❓ **КАК РАБОТАЕТ СИСТЕМА ЗАДАНИЙ**
+
+**🎯 УРОВНИ:**
+• Начинаешь с 1 уровня
+• Каждые 100 XP = новый уровень
+• Максимум 10 уровней
+
+**📋 ЗАДАНИЯ:**
+• До 3 уровня (0-4 задания): задания открываются по порядку
+• С 3 уровня (5+ заданий): можешь выбирать из доступных
+
+**⭐ ОПЫТ (XP):**
+• За каждое задание даётся XP
+• AI-задания: 35-70 XP
+• Фото-задания: 45-75 XP  
+• Видео-задания: 70-150 XP
+
+**✅ КАК ВЫПОЛНИТЬ:**
+1. Выбери задание
+2. Прочитай описание
+3. Выполни задание
+4. Отправь результат боту
+5. Жди проверки от Дмитрия Витальевича
+
+**🎁 НАГРАДЫ:**
+• XP за каждое задание
+• Новые уровни
+• Доступ к новым заданиям
+• Право выбора (с 3 уровня)
+
+💡 Если непонятно - спроси у Дмитрия Витальевича!
+"""
+    
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("◀️ Назад", callback_data="tasks_menu"))
+    
+    bot.edit_message_text(
+        text,
+        call.message.chat.id,
+        call.message.message_id,
+        reply_markup=markup,
+        parse_mode='Markdown'
+    )
+    bot.answer_callback_query(call.id)
