@@ -9,11 +9,12 @@ from handlers import (
     handle_text,
     handle_callback,
     handle_photo,
+    handle_video,  # ← ДОБАВЛЕНО
     handle_stat_command,
     handle_add_event_command
 )
 
-# Токен бота (прописан прямо в коде)
+# Токен бота
 BOT_TOKEN = os.getenv('BOT_TOKEN', '8473634161:AAHv_fbBnQ37TboA9LuHCWwgLpjo66daSlA')
 
 # Инициализация бота
@@ -44,6 +45,11 @@ def add_event_command(message):
 def photo_handler(message):
     """Обработка фото"""
     handle_photo(bot, message)
+
+@bot.message_handler(content_types=['video'])  # ← ДОБАВЛЕНО
+def video_handler(message):
+    """Обработка видео"""
+    handle_video(bot, message)
 
 @bot.message_handler(content_types=['text'])
 def text_handler(message):
