@@ -6,12 +6,8 @@ import os
 import telebot
 from handlers import (
     handle_start,
-    handle_text,
     handle_callback,
-    handle_photo,
-    handle_video,  # ← ДОБАВЛЕНО
-    handle_stat_command,
-    handle_add_event_command
+    handle_message
 )
 
 # Токен бота
@@ -29,32 +25,12 @@ def start_command(message):
     """Команда /start"""
     handle_start(bot, message)
 
-@bot.message_handler(commands=['stat'])
-def stat_command(message):
-    """Команда /stat (админ)"""
-    handle_stat_command(bot, message)
-
-@bot.message_handler(commands=['add_event'])
-def add_event_command(message):
-    """Команда /add_event (админ)"""
-    handle_add_event_command(bot, message)
-
 # === ОБРАБОТЧИКИ КОНТЕНТА ===
 
-@bot.message_handler(content_types=['photo'])
-def photo_handler(message):
-    """Обработка фото"""
-    handle_photo(bot, message)
-
-@bot.message_handler(content_types=['video'])  # ← ДОБАВЛЕНО
-def video_handler(message):
-    """Обработка видео"""
-    handle_video(bot, message)
-
-@bot.message_handler(content_types=['text'])
-def text_handler(message):
-    """Обработка текста"""
-    handle_text(bot, message)
+@bot.message_handler(content_types=['photo', 'video', 'text'])
+def message_handler(message):
+    """Обработка всех сообщений"""
+    handle_message(bot, message)
 
 # === ОБРАБОТЧИКИ CALLBACK ===
 
