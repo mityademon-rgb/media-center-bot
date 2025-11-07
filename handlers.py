@@ -74,21 +74,6 @@ def handle_start(bot, message):
 def handle_message(bot, message):
     """Обработка текстовых сообщений"""
     
-    user_id = message.from_user.id
-    text = message.text
-    
-    # Проверяем команду /add_event (для админа)
-    if text == '/add_event':
-        if is_admin(user_id):
-            return handle_add_event_start(bot, message)
-        else:
-            bot.send_message(message.chat.id, "⛔ Доступ запрещён!")
-            return
-    
-    # Проверяем шаги добавления события
-    if handle_add_event_step(bot, message):
-        return
-    
     # Проверяем комментарий от админа
     from tasks import handle_admin_comment
     if handle_admin_comment(bot, message):
@@ -99,6 +84,7 @@ def handle_message(bot, message):
     if handle_task_submission(bot, message):
         return
     
+    user_id = message.from_user.id
     user = get_user(user_id)
     
     # Если регистрация не завершена - направляем в регистрацию
@@ -108,6 +94,7 @@ def handle_message(bot, message):
     # Проверка на вопросы AI
     if user_id in waiting_for_question:
         return handle_ai_question(bot, message)
+
 
     
     # ============ ПРОВЕРКА ОТПРАВКИ ЗАДАНИЯ ============
