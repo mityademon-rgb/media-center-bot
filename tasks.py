@@ -5,6 +5,11 @@
 from database import get_user, update_user
 from datetime import datetime, timedelta
 import telebot
+# Словарь для отслеживания ожидания отправки задания
+waiting_for_task_submission = {}
+
+# Словарь для ожидания комментария от админа
+waiting_for_comment = {}
 
 # ============================================
 # БАЗА ЗАДАНИЙ
@@ -642,38 +647,26 @@ def handle_task_approve(bot, call):
             bot.answer_callback_query(call.id, "❌ Задание не найдено")
             return
         
-        # Засчитываем задание
-        result = complete_task(user_id, task_id)
+        # Сохраняем информацию для комментария
+        waiting_for_comment[call.from_user.id] = {
+            'action': 'approve',
+            'user_id': user_id,
+            'task_id': task_id,
+            'message_id': call.message.message_id,
+            'chat_id': call.message.chat.id
+        }
         
-        if not result:
-            bot.answer_callback_query(call.id, "❌ Задание уже выполнено")
-            return
-        
-        # Уведомляем ученика
-        reward_text = f"""✅ **ЗАДАНИЕ ЗАСЧИТАНО!**
-
-🎯 Задание: {task['title']}
-⭐ Получено: +{result['xp_gained']} XP
-📊 Всего XP: {result['new_xp']}
-"""
-        
-        if result['level_up']:
-            level_emoji = ["🌱", "🌿", "🌳", "🌲", "🎯", "⭐", "💎", "🏆", "👑", "🔥"]
-            emoji = level_emoji[min(result['new_level']-1, 9)]
-            reward_text += f"\n\n🎉 **НОВЫЙ УРОВЕНЬ!** {emoji}\n{result['old_level']} → {result['new_level']}"
-        
-        reward_text += "\n\nТак держать! 🔥"
-        
-        bot.send_message(user_id, reward_text, parse_mode='Markdown')
-        
-        # Подтверждение админу
-        bot.edit_message_text(
-            call.message.text + "\n\n✅ **ПРИНЯТО**",
-            call.message.chat.id,
-            call.message.message_id,
+        # Просим написать комментарий
+        bot.answer_callback_query(call.id, "✅ Принято!")
+        bot.send_message(
+            call.from_user.id,
+            f"✅ **Задание принято!**\n\n"
+            f"📝 Теперь напиши комментарий ученику:\n"
+            f"• Что получилось хорошо?\n"
+            f"• Что можно улучшить?\n\n"
+            f"💡 Или отправь /skip чтобы пропустить комментарий",
             parse_mode='Markdown'
         )
-        bot.answer_callback_query(call.id, "✅ Задание засчитано!")
         
     except Exception as e:
         print(f"❌ Ошибка в handle_task_approve: {e}")
@@ -695,26 +688,142 @@ def handle_task_reject(bot, call):
             bot.answer_callback_query(call.id, "❌ Задание не найдено")
             return
         
-        # Уведомляем ученика
-        bot.send_message(
-            user_id,
-            f"❌ **Задание отклонено**\n\n🎯 {task['title']}\n\n"
-            f"💬 Дмитрий Витальевич напишет тебе комментарий",
-            parse_mode='Markdown'
-        )
+        # Сохраняем информацию для комментария
+        waiting_for_comment[call.from_user.id] = {
+            'action': 'reject',
+            'user_id': user_id,
+            'task_id': task_id,
+            'message_id': call.message.message_id,
+            'chat_id': call.message.chat.id
+        }
         
-        # Подтверждение админу
-        bot.edit_message_text(
-            call.message.text + "\n\n❌ **ОТКЛОНЕНО**",
-            call.message.chat.id,
-            call.message.message_id,
+        # Просим написать причину отклонения
+        bot.answer_callback_query(call.id, "❌ Отклонено")
+        bot.send_message(
+            call.from_user.id,
+            f"❌ **Задание отклонено**\n\n"
+            f"📝 Напиши ученику почему:\n"
+            f"• Что не так?\n"
+            f"• Что нужно исправить?\n"
+            f"• Какие советы?\n\n"
+            f"⚠️ Комментарий обязателен при отклонении!",
             parse_mode='Markdown'
         )
-        bot.answer_callback_query(call.id, "❌ Отклонено, напиши причину юзеру")
         
     except Exception as e:
         print(f"❌ Ошибка в handle_task_reject: {e}")
         bot.answer_callback_query(call.id, f"❌ Ошибка: {e}")
+
+
+def handle_admin_comment(bot, message):
+    """Обработка комментария от админа"""
+    admin_id = message.from_user.id
+    
+    if admin_id not in waiting_for_comment:
+        return False
+    
+    comment_data = waiting_for_comment[admin_id]
+    action = comment_data['action']
+    user_id = comment_data['user_id']
+    task_id = comment_data['task_id']
+    msg_id = comment_data['message_id']
+    chat_id = comment_data['chat_id']
+    
+    task = get_task_by_id(task_id)
+    if not task:
+        bot.send_message(admin_id, "❌ Ошибка: задание не найдено")
+        del waiting_for_comment[admin_id]
+        return True
+    
+    comment = message.text
+    
+    # Пропуск комментария при одобрении
+    if comment == "/skip" and action == "approve":
+        comment = None
+    
+    # При отклонении комментарий обязателен
+    if action == "reject" and (not comment or comment == "/skip"):
+        bot.send_message(
+            admin_id,
+            "⚠️ **Комментарий обязателен при отклонении!**\n\nНапиши причину:",
+            parse_mode='Markdown'
+        )
+        return True
+    
+    # ОДОБРЕНИЕ
+    if action == "approve":
+        # Засчитываем задание
+        result = complete_task(user_id, task_id)
+        
+        if not result:
+            bot.send_message(admin_id, "❌ Задание уже выполнено")
+            del waiting_for_comment[admin_id]
+            return True
+        
+        # Уведомляем ученика
+        reward_text = f"""✅ **ЗАДАНИЕ ЗАСЧИТАНО!**
+
+🎯 Задание: {task['title']}
+⭐ Получено: +{result['xp_gained']} XP
+📊 Всего XP: {result['new_xp']}
+"""
+        
+        if result['level_up']:
+            level_emoji = ["🌱", "🌿", "🌳", "🌲", "🎯", "⭐", "💎", "🏆", "👑", "🔥"]
+            emoji = level_emoji[min(result['new_level']-1, 9)]
+            reward_text += f"\n\n🎉 **НОВЫЙ УРОВЕНЬ!** {emoji}\n{result['old_level']} → {result['new_level']}"
+        
+        if comment:
+            reward_text += f"\n\n💬 **Комментарий от Дмитрия Витальевича:**\n{comment}"
+        
+        reward_text += "\n\n🔥 Так держать!"
+        
+        bot.send_message(user_id, reward_text, parse_mode='Markdown')
+        
+        # Подтверждение админу
+        try:
+            bot.edit_message_caption(
+                chat_id=chat_id,
+                message_id=msg_id,
+                caption=bot.get_message(chat_id, msg_id).caption + "\n\n✅ **ПРИНЯТО**",
+                parse_mode='Markdown'
+            )
+        except:
+            pass
+        
+        bot.send_message(admin_id, "✅ Задание засчитано, комментарий отправлен!")
+    
+    # ОТКЛОНЕНИЕ
+    elif action == "reject":
+        # Уведомляем ученика
+        reject_text = f"""❌ **Задание отклонено**
+
+🎯 Задание: {task['title']}
+
+💬 **Комментарий от Дмитрия Витальевича:**
+{comment}
+
+💡 Исправь и отправь снова!
+"""
+        
+        bot.send_message(user_id, reject_text, parse_mode='Markdown')
+        
+        # Подтверждение админу
+        try:
+            bot.edit_message_caption(
+                chat_id=chat_id,
+                message_id=msg_id,
+                caption=bot.get_message(chat_id, msg_id).caption + "\n\n❌ **ОТКЛОНЕНО**",
+                parse_mode='Markdown'
+            )
+        except:
+            pass
+        
+        bot.send_message(admin_id, "✅ Комментарий отправлен, задание отклонено")
+    
+    # Убираем из ожидания
+    del waiting_for_comment[admin_id]
+    return True
 
 
 def handle_completed_tasks(bot, call):
