@@ -634,7 +634,7 @@ def handle_task_submission(bot, message):
     
     # Получаем ID админа (Дмитрий Витальевич)
     # ЗАМЕНИ на свой Telegram ID!
-    ADMIN_ID = 123456789  # ← ТВОЙ TELEGRAM ID
+    ADMIN_ID = 397724997  # Дмитрий Витальевич
     
     # Формируем сообщение админу
     admin_text = f"""
