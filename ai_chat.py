@@ -1,8 +1,8 @@
 """
-AI-чат с YandexGPT
+AI-чат с OpenAI GPT
 """
 import telebot
-from yandex_gpt import ask_yandex_gpt, ask_with_context
+from openai_gpt import ask_gpt, ask_gpt_with_context  # ← ИЗМЕНИЛИ ЭТУ СТРОКУ
 from keyboards import back_to_menu_keyboard
 
 # История диалогов (в памяти, по user_id)
