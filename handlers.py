@@ -24,6 +24,21 @@ from schedule import (
 )
 from keyboards import main_reply_keyboard, main_menu_keyboard, schedule_keyboard
 
+# ============ ИМПОРТЫ ЗАДАНИЙ ============
+from tasks import (
+    handle_tasks_menu,
+    handle_available_tasks,
+    handle_task_view,
+    handle_task_submit,
+    handle_task_approve,
+    handle_task_reject,
+    handle_completed_tasks,
+    handle_tasks_progress,
+    handle_tasks_help,
+    handle_task_submission,
+    waiting_for_task_submission
+)
+
 def handle_start(bot, message):
     """Команда /start"""
     user_id = message.from_user.id
@@ -65,6 +80,11 @@ def handle_text(bot, message):
     if user_id in waiting_for_question:
         return handle_ai_question(bot, message)
     
+    # ============ ПРОВЕРКА ОТПРАВКИ ЗАДАНИЯ ============
+    if user_id in waiting_for_task_submission:
+        if handle_task_submission(bot, message):
+            return
+    
     # Проверяем добавление события (админ)
     if user.get('adding_event'):
         if handle_add_event_step(bot, message):
@@ -80,11 +100,8 @@ def handle_text(bot, message):
         handle_ai_chat_menu(bot, message)
         return
     
-    # Обработка кнопок главного меню
-   
-    
+    # Расписание
     if text == "📅 Расписание":
-        # Показываем меню расписания
         keyboard = schedule_keyboard()
         bot.send_message(
             message.chat.id,
@@ -95,13 +112,12 @@ def handle_text(bot, message):
         )
         return
     
+    # ============ ЗАДАНИЯ ============
     if text == "🎯 Задания":
-        bot.send_message(
-            message.chat.id,
-            "🔧 Задания в разработке!\n\nСкоро сможешь получать крутые задачи 🎯"
-        )
+        handle_tasks_menu(bot, message)
         return
     
+    # Профиль
     if text == "👤 Профиль":
         display_name = get_user_display_name(user_id)
         profile_text = f"""
@@ -118,6 +134,7 @@ def handle_text(bot, message):
         bot.send_message(message.chat.id, profile_text, parse_mode='Markdown')
         return
     
+    # Прогресс
     if text == "📊 Прогресс":
         bot.send_message(
             message.chat.id,
@@ -130,13 +147,13 @@ def handle_text(bot, message):
         )
         return
     
+    # Помощь
     if text == "❓ Помощь":
         help_text = """
 ❓ **ПОМОЩЬ**
 
 **Что я умею:**
 
-📚 **Шпаргалки** - полезные материалы по фото, видео, монтажу
 📅 **Расписание** - все занятия медиацентра
 🎯 **Задания** - творческие задачи с наградами
 👤 **Профиль** - твои данные и прогресс
@@ -148,7 +165,7 @@ def handle_text(bot, message):
 /stat - статистика (только для админа)
 /add_event - добавить занятие (только для админа)
 
-Возникли вопросы? Пиши @admin 💬
+Возникли вопросы? Пиши @mityademonrgb 💬
 """
         bot.send_message(message.chat.id, help_text, parse_mode='Markdown')
         return
@@ -197,6 +214,49 @@ def handle_callback(bot, call):
         handle_predefined_question(bot, call)
         return
     
+    # ============ ЗАДАНИЯ ============
+    if data == "tasks_menu":
+        handle_tasks_menu(bot, call.message)
+        bot.answer_callback_query(call.id)
+        return
+    
+    if data == "tasks_available":
+        handle_available_tasks(bot, call)
+        return
+    
+    if data.startswith("task_view_"):
+        handle_task_view(bot, call)
+        return
+    
+    if data.startswith("task_submit_"):
+        handle_task_submit(bot, call)
+        return
+    
+    if data.startswith("approve_"):
+        handle_task_approve(bot, call)
+        return
+    
+    if data.startswith("reject_"):
+        handle_task_reject(bot, call)
+        return
+    
+    if data == "tasks_completed":
+        handle_completed_tasks(bot, call)
+        return
+    
+    if data == "tasks_progress":
+        handle_tasks_progress(bot, call)
+        return
+    
+    if data == "tasks_help":
+        handle_tasks_help(bot, call)
+        return
+    
+    # Заглушка для "dummy" кнопок
+    if data == "dummy":
+        bot.answer_callback_query(call.id)
+        return
+    
     # РАСПИСАНИЕ
     if data == 'schedule_week':
         bot.answer_callback_query(call.id)
@@ -237,9 +297,14 @@ def handle_callback(bot, call):
     bot.answer_callback_query(call.id, "🔧 В разработке!")
 
 def handle_photo(bot, message):
-    """Обработка фото (QR-код)"""
+    """Обработка фото (QR-код или задание)"""
     user_id = message.from_user.id
     user = get_user(user_id)
+    
+    # ============ ПРОВЕРКА ОТПРАВКИ ЗАДАНИЯ ============
+    if user_id in waiting_for_task_submission:
+        if handle_task_submission(bot, message):
+            return
     
     # Если пользователь зарегистрирован и отправил фото
     if user and user.get('registration_step', 0) >= 5:
@@ -249,6 +314,21 @@ def handle_photo(bot, message):
     bot.send_message(
         message.chat.id,
         "🤔 Сначала пройди регистрацию!\n\nНапиши /start"
+    )
+
+def handle_video(bot, message):
+    """Обработка видео (для заданий)"""
+    user_id = message.from_user.id
+    
+    # ============ ПРОВЕРКА ОТПРАВКИ ЗАДАНИЯ ============
+    if user_id in waiting_for_task_submission:
+        if handle_task_submission(bot, message):
+            return
+    
+    # Если не задание - игнорируем
+    bot.send_message(
+        message.chat.id,
+        "🎥 Видео принято! Если это задание - сначала выбери его в меню 🎯 Задания"
     )
 
 def handle_stat_command(bot, message):
