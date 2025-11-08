@@ -14,6 +14,7 @@ BACKUP_DB = '/tmp/users.json'
 
 # Глобальный кэш
 _users_cache = {}
+_loaded = False
 
 def _get_db_path():
     """Определить путь к файлу БД"""
@@ -25,7 +26,10 @@ def _get_db_path():
 
 def load_users():
     """Загрузить пользователей из файла"""
-    global _users_cache
+    global _users_cache, _loaded
+    
+    if _loaded:
+        return _users_cache
     
     db_path = _get_db_path()
     
@@ -34,6 +38,7 @@ def load_users():
             with open(db_path, 'r', encoding='utf-8') as f:
                 _users_cache = json.load(f)
             print(f"✅ Загружено: {len(_users_cache)} пользователей")
+            _loaded = True
             return _users_cache
         except Exception as e:
             print(f"❌ Ошибка загрузки: {e}")
@@ -42,6 +47,7 @@ def load_users():
     _users_cache = {}
     save_users(_users_cache)
     print("✅ Создана новая база")
+    _loaded = True
     return _users_cache
 
 def save_users(users):
@@ -64,18 +70,23 @@ def save_users(users):
         print(f"❌ Ошибка сохранения: {e}")
         return False
 
+def _ensure_loaded():
+    """Загрузить базу если ещё не загружена"""
+    if not _loaded:
+        load_users()
+
 def get_user(user_id):
     """Получить данные пользователя"""
-    users = load_users()
-    return users.get(str(user_id))
+    _ensure_loaded()
+    return _users_cache.get(str(user_id))
 
 def create_user(user_id, telegram_data=None):
     """Создать нового пользователя"""
-    users = load_users()
+    _ensure_loaded()
     user_id_str = str(user_id)
     
-    if user_id_str in users:
-        return users[user_id_str]
+    if user_id_str in _users_cache:
+        return _users_cache[user_id_str]
     
     new_user = {
         'user_id': user_id,
@@ -95,25 +106,25 @@ def create_user(user_id, telegram_data=None):
             'telegram_last_name': telegram_data.get('last_name')
         })
     
-    users[user_id_str] = new_user
-    save_users(users)
+    _users_cache[user_id_str] = new_user
+    save_users(_users_cache)
     
     print(f"✅ Создан: {user_id}")
     return new_user
 
 def update_user(user_id, updates):
     """Обновить данные пользователя"""
-    users = load_users()
+    _ensure_loaded()
     user_id_str = str(user_id)
     
-    if user_id_str not in users:
+    if user_id_str not in _users_cache:
         return None
     
-    users[user_id_str].update(updates)
-    users[user_id_str]['last_active'] = datetime.now().isoformat()
-    save_users(users)
+    _users_cache[user_id_str].update(updates)
+    _users_cache[user_id_str]['last_active'] = datetime.now().isoformat()
+    save_users(_users_cache)
     
-    return users[user_id_str]
+    return _users_cache[user_id_str]
 
 def is_registered(user_id):
     """Проверить завершена ли регистрация"""
@@ -124,7 +135,8 @@ def is_registered(user_id):
 
 def get_all_users():
     """Получить всех пользователей"""
-    return load_users()
+    _ensure_loaded()
+    return _users_cache
 
 def get_user_display_name(user_id):
     """Получить отображаемое имя"""
@@ -139,12 +151,12 @@ def get_user_display_name(user_id):
 
 def delete_user(user_id):
     """Удалить пользователя"""
-    users = load_users()
+    _ensure_loaded()
     user_id_str = str(user_id)
     
-    if user_id_str in users:
-        del users[user_id_str]
-        save_users(users)
+    if user_id_str in _users_cache:
+        del _users_cache[user_id_str]
+        save_users(_users_cache)
         return True
     return False
 
@@ -152,16 +164,16 @@ def delete_user(user_id):
 
 def get_statistics():
     """Статистика для админа"""
-    users = get_all_users()
+    _ensure_loaded()
     
-    total = len(users)
-    registered = sum(1 for u in users.values() if u.get('registration_step', 0) >= 5)
-    with_qr = sum(1 for u in users.values() if u.get('qr_code'))
+    total = len(_users_cache)
+    registered = sum(1 for u in _users_cache.values() if u.get('registration_step', 0) >= 5)
+    with_qr = sum(1 for u in _users_cache.values() if u.get('qr_code'))
     
     # Активность за сегодня
     today = datetime.now().date().isoformat()
     today_active = sum(
-        1 for u in users.values() 
+        1 for u in _users_cache.values() 
         if u.get('last_active', '').startswith(today)
     )
     
@@ -175,10 +187,10 @@ def get_statistics():
 
 def get_recent_users(limit=5):
     """Последние зарегистрированные"""
-    users = get_all_users()
+    _ensure_loaded()
     
     registered = [
-        u for u in users.values() 
+        u for u in _users_cache.values() 
         if u.get('registration_step', 0) >= 5
     ]
     
@@ -191,17 +203,14 @@ def get_recent_users(limit=5):
 
 def get_waiting_qr_users():
     """Пользователи без QR-кода"""
-    users = get_all_users()
+    _ensure_loaded()
     
     return [
-        u for u in users.values()
+        u for u in _users_cache.values()
         if u.get('registration_step', 0) >= 5 and not u.get('qr_code')
     ]
 
 def export_database():
     """Экспорт базы в JSON"""
-    users = get_all_users()
-    return json.dumps(users, ensure_ascii=False, indent=2)
-
-# Инициализация
-load_users()
+    _ensure_loaded()
+    return json.dumps(_users_cache, ensure_ascii=False, indent=2)
