@@ -352,4 +352,4 @@ def send_daily_reminders(bot):
     
     print(f"✅ Отправлено {sent_count} напоминаний о {len(today_events)} событиях")
 
-    return False
+  
