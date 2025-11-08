@@ -72,6 +72,7 @@ def save_users(users):
 
 def _ensure_loaded():
     """Загрузить базу если ещё не загружена"""
+    global _loaded  # ← ДОБАВЛЕНО!
     if not _loaded:
         load_users()
 
