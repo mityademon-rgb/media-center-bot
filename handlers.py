@@ -17,13 +17,7 @@ from registration import (
 )
 from admin import handle_stat, handle_export_db, handle_without_qr, is_admin
 
-# ============ ИМПОРТЫ РАСПИСАНИЯ ============
-from schedule_module import (
-    handle_schedule_week,
-    handle_schedule_month,
-    handle_add_event_start,
-    handle_add_event_step
-)
+# ИМПОРТЫ РАСПИСАНИЯ УБРАНЫ! Теперь импортируем лениво внутри функций
 
 from keyboards import main_reply_keyboard, main_menu_keyboard, schedule_keyboard
 
@@ -99,6 +93,11 @@ def handle_message(bot, message):
     
     user = get_user(user_id)
     
+    # Проверяем добавление события (ВАЖНО: до регистрации!)
+    if user and user.get('adding_event'):
+        from schedule_module import handle_add_event_step
+        return handle_add_event_step(bot, message)
+    
     # Если регистрация не завершена - направляем в регистрацию
     if not user or not is_registered(user_id):
         return handle_registration_step(bot, message)
@@ -106,17 +105,10 @@ def handle_message(bot, message):
     # Проверка на вопросы AI
     if user_id in waiting_for_question:
         return handle_ai_question(bot, message)
-
-
     
     # ============ ПРОВЕРКА ОТПРАВКИ ЗАДАНИЯ ============
     if user_id in waiting_for_task_submission:
         if handle_task_submission(bot, message):
-            return
-    
-    # Проверяем добавление события (админ)
-    if user.get('adding_event'):
-        if handle_add_event_step(bot, message):
             return
     
     # Обновляем активность
@@ -192,7 +184,7 @@ def handle_message(bot, message):
 **Команды:**
 /start - главное меню
 /stat - статистика (только для админа)
-/add_event - добавить занятие (только для админа)
+/ras - добавить занятие (только для админа)
 
 Возникли вопросы? Пиши @mityademonrgb 💬
 """
@@ -286,13 +278,15 @@ def handle_callback(bot, call):
         bot.answer_callback_query(call.id)
         return
     
-    # РАСПИСАНИЕ
+    # РАСПИСАНИЕ (ленивый импорт)
     if data == 'schedule_week':
         bot.answer_callback_query(call.id)
+        from schedule_module import handle_schedule_week
         return handle_schedule_week(bot, call.message)
     
     if data == 'schedule_month':
         bot.answer_callback_query(call.id)
+        from schedule_module import handle_schedule_month
         return handle_schedule_month(bot, call.message)
     
     if data == 'my_reminders':
@@ -366,4 +360,5 @@ def handle_stat_command(bot, message):
 
 def handle_add_event_command(bot, message):
     """Команда /add_event (для админа)"""
+    from schedule_module import handle_add_event_start
     return handle_add_event_start(bot, message)
