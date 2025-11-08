@@ -74,6 +74,19 @@ def handle_start(bot, message):
 def handle_message(bot, message):
     """Обработка текстовых сообщений"""
     
+    user_id = message.from_user.id
+    text = message.text
+    
+    # Команда /ras для добавления занятия (только админ)
+    if text and text.startswith('/ras'):
+        from admin import is_admin
+        if is_admin(user_id):
+            from schedule_module import handle_add_event_start
+            return handle_add_event_start(bot, message)
+        else:
+            bot.send_message(message.chat.id, "⛔ Доступ запрещён!")
+            return
+    
     # Проверяем комментарий от админа
     from tasks import handle_admin_comment
     if handle_admin_comment(bot, message):
@@ -84,7 +97,6 @@ def handle_message(bot, message):
     if handle_task_submission(bot, message):
         return
     
-    user_id = message.from_user.id
     user = get_user(user_id)
     
     # Если регистрация не завершена - направляем в регистрацию
