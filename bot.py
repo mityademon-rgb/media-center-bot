@@ -4,15 +4,17 @@
 """
 import os
 import telebot
+from flask import Flask, send_from_directory
+import threading
+
 from handlers import (
     handle_start,
     handle_callback,
-    handle_message
+    handle_message,
+    setup_game_handlers  
 )
+
 # ============= FLASK ДЛЯ WEB APP =============
-from flask import Flask, send_from_directory
-import threading
-import os
 
 # Создаём Flask приложение
 flask_app = Flask(__name__, static_folder='public', static_url_path='')
@@ -63,14 +65,18 @@ def callback_handler(call):
     """Обработка нажатий на кнопки"""
     handle_callback(bot, call)
 
+# === РЕГИСТРАЦИЯ ОБРАБОТЧИКОВ ИГР ===
+setup_game_handlers(bot)
+
 # === ЗАПУСК БОТА ===
-# Запуск Flask в отдельном потоке
-print("🌐 Запуск веб-сервера для игр...")
-flask_thread = threading.Thread(target=run_flask, daemon=True)
-flask_thread.start()
-print("✅ Веб-сервер запущен на порту 5000!")
 
 if __name__ == '__main__':
+    # Запуск Flask в отдельном потоке
+    print("🌐 Запуск веб-сервера для игр...")
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    print("✅ Веб-сервер запущен на порту 5000!")
+    
     print("🚀 Бот запущен и готов к работе!")
     print("=" * 50)
     
