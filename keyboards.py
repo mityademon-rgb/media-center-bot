@@ -16,6 +16,7 @@ def main_reply_keyboard():
         types.KeyboardButton("👤 Профиль"),
         types.KeyboardButton("📊 Прогресс"),
        types.KeyboardButton("🤖 AI-Помощник"),
+        types.KeyboardButton("🎮 Игры"),
         types.KeyboardButton("❓ Помощь")
     ]
     
