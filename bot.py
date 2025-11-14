@@ -9,6 +9,30 @@ from handlers import (
     handle_callback,
     handle_message
 )
+# ============= FLASK ДЛЯ WEB APP =============
+from flask import Flask, send_from_directory
+import threading
+import os
+
+# Создаём Flask приложение
+flask_app = Flask(__name__, static_folder='public', static_url_path='')
+
+@flask_app.route('/')
+def index():
+    """Главная страница игр"""
+    return send_from_directory('public', 'index.html')
+
+@flask_app.route('/<path:path>')
+def serve_file(path):
+    """Раздача файлов из папки public"""
+    return send_from_directory('public', path)
+
+def run_flask():
+    """Запуск Flask сервера"""
+    port = int(os.getenv('PORT', 5000))
+    flask_app.run(host='0.0.0.0', port=port, debug=False)
+
+# ============================================
 
 # Токен бота
 BOT_TOKEN = os.getenv('BOT_TOKEN', '8473634161:AAHv_fbBnQ37TboA9LuHCWwgLpjo66daSlA')
@@ -40,6 +64,11 @@ def callback_handler(call):
     handle_callback(bot, call)
 
 # === ЗАПУСК БОТА ===
+# Запуск Flask в отдельном потоке
+print("🌐 Запуск веб-сервера для игр...")
+flask_thread = threading.Thread(target=run_flask, daemon=True)
+flask_thread.start()
+print("✅ Веб-сервер запущен на порту 5000!")
 
 if __name__ == '__main__':
     print("🚀 Бот запущен и готов к работе!")
