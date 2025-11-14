@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Композиция</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: white;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .game-title {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .progress-panel {
+            font-size: 20px;
+            font-weight: bold;
+            color: #FFD700;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        }
+
+        .game-area {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            animation: slideUp 0.6s ease;
+        }
+
+        .question {
+            font-size: 20px;
+            text-align: center;
+            margin-bottom: 25px;
+            font-weight: 500;
+        }
+
+        .hint {
+            text-align: center;
+            font-size: 14px;
+            color: #FFD700;
+            margin-bottom: 20px;
+            font-style: italic;
+        }
+
+        .options-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .option-img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 12px;
+            cursor: pointer;
+            border: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .option-img:hover {
+            transform: scale(1.05);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .option-img.correct {
+            border-color: #51cf66;
+            animation: pulse 0.5s ease;
+        }
+
+        .option-img.wrong {
+            border-color: #ff6b6b;
+            animation: shake 0.5s ease;
+            opacity: 0.5;
+        }
+
+        .option-img.disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .game-over {
+            text-align: center;
+            padding: 30px;
+        }
+
+        .game-over h2 {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        .game-over .title {
+            font-size: 28px;
+            color: #FFD700;
+            margin-bottom: 15px;
+        }
+
+        .game-over p {
+            font-size: 18px;
+            margin-bottom: 10px;
+            opacity: 0.9;
+        }
+
+        .back-btn {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 25px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .back-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(255,255,255,0.3);
+        }
+
+        .fact {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            border-radius: 12px;
+            margin-top: 15px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .loader {
+            text-align: center;
+            font-size: 48px;
+            padding: 50px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="game-title">🎨 Композиция</div>
+            <div class="progress-panel" id="progress">Кадр 1 из 3</div>
+        </header>
+
+        <div class="game-area" id="gameArea">
+            <div class="loader">🎬</div>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+
+        const userId = tg.initDataUnsafe?.user?.id || 0;
+
+        // БАЗА КОМПОЗИЦИЙ (ПОКА ВРЕМЕННЫЕ КАРТИНКИ - ТЫ ЗАМЕНИШЬ!)
+        const compositions = [
+            {
+                correct: 0, // Индекс правильного варианта
+                options: [
+                    "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=400&h=300&fit=crop", // Правильный
+                    "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=400&h=300&fit=crop&flip=h", // Отзеркаленный
+                    "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=400&h=300&fit=crop&sat=-100", // Ч/Б
+                    "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=400&h=300&fit=crop&crop=top" // Обрезанный
+                ],
+                hint: "💡 Обрати внимание на правило третей",
+                fact: "Правило третей - одно из основных правил композиции. Важные объекты располагаются на пересечении линий, делящих кадр на 9 частей."
+            },
+            {
+                correct: 1,
+                options: [
+                    "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=400&h=300&fit=crop&crop=bottom",
+                    "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=400&h=300&fit=crop", // Правильный
+                    "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=400&h=300&fit=crop&flip=h",
+                    "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=400&h=300&fit=crop&crop=top"
+                ],
+                hint: "💡 Где должен быть главный объект?",
+                fact: "Золотое сечение - деление кадра в пропорции 1:1.618. Глаз зрителя естественно притягивается к этим точкам."
+            },
+            {
+                correct: 2,
+                options: [
+                    "https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=400&h=300&fit=crop&crop=top",
+                    "https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=400&h=300&fit=crop&flip=h",
+                    "https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=400&h=300&fit=crop", // Правильный
+                    "https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=400&h=300&fit=crop&crop=bottom"
+                ],
+                hint: "💡 Куда направлен взгляд героя?",
+                fact: "Направление взгляда - герой должен смотреть в пустое пространство кадра, создавая динамику."
+            }
+        ];
+
+        let currentQuestion = 0;
+        let correctAnswers = 0;
+        const MAX_ATTEMPTS = 3;
+        let gameActive = true;
+
+        function getToday() {
+            return new Date().toISOString().split('T')[0];
+        }
+
+        function checkIfPlayedToday() {
+            const lastPlayed = localStorage.getItem('composition_last_played');
+            const today = getToday();
+            
+            if (lastPlayed === today) {
+                showGameOver(true);
+                return false;
+            }
+            
+            return true;
+        }
+
+        function showQuestion() {
+            if (correctAnswers >= MAX_ATTEMPTS) {
+                localStorage.setItem('composition_last_played', getToday());
+                if (userId !== 0) {
+                    updateServerXP();
+                }
+                showGameOver(false);
+                return;
+            }
+
+            const comp = compositions[currentQuestion];
+            const gameArea = document.getElementById('gameArea');
+
+            gameArea.innerHTML = `
+                <div class="question">Какая композиция правильная?</div>
+                <div class="hint">${comp.hint}</div>
+                <div class="options-grid" id="options"></div>
+            `;
+
+            const optionsContainer = document.getElementById('options');
+            comp.options.forEach((imgUrl, index) => {
+                const img = document.createElement('img');
+                img.className = 'option-img';
+                img.src = imgUrl;
+                img.alt = `Вариант ${index + 1}`;
+                img.onclick = () => checkAnswer(index, comp.correct, img, comp.fact);
+                optionsContainer.appendChild(img);
+            });
+
+            document.getElementById('progress').textContent = `Кадр ${correctAnswers + 1} из 3`;
+        }
+
+        function checkAnswer(selected, correct, img, fact) {
+            if (!gameActive) return;
+
+            gameActive = false;
+            const allImages = document.querySelectorAll('.option-img');
+            allImages.forEach(i => i.classList.add('disabled'));
+
+            if (selected === correct) {
+                img.classList.add('correct');
+                correctAnswers++;
+                
+                const gameArea = document.getElementById('gameArea');
+                gameArea.innerHTML += `<div class="fact">💡 ${fact}</div>`;
+
+                setTimeout(() => {
+                    currentQuestion++;
+                    gameActive = true;
+                    showQuestion();
+                }, 9000);
+            } else {
+                img.classList.add('wrong');
+                allImages[correct].classList.add('correct');
+
+                setTimeout(() => {
+                    currentQuestion++;
+                    gameActive = true;
+                    showQuestion();
+                }, 3000);
+            }
+        }
+
+        async function updateServerXP() {
+            try {
+                await fetch(`/api/game/update/${userId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xp: correctAnswers * 10 })
+                });
+                console.log('✅ XP обновлён');
+            } catch (error) {
+                console.error('Ошибка обновления XP:', error);
+            }
+        }
+
+        function showGameOver(alreadyPlayed) {
+            const gameArea = document.getElementById('gameArea');
+            
+            if (alreadyPlayed) {
+                gameArea.innerHTML = `
+                    <div class="game-over">
+                        <h2>⏰</h2>
+                        <div class="title">На сегодня всё!</div>
+                        <p style="font-size: 16px; color: #ccc; margin: 20px 0;">
+                            Ты уже сыграл сегодня!<br>
+                            Приходи завтра за новыми композициями! 🌅
+                        </p>
+                        <button class="back-btn" onclick="goBack()">🎮 Другие игры</button>
+                    </div>
+                `;
+            } else {
+                gameArea.innerHTML = `
+                    <div class="game-over">
+                        <h2>🎉</h2>
+                        <div class="title">Отлично!</div>
+                        <p>🎯 Правильных ответов: ${correctAnswers}/3</p>
+                        <p>⚡ Заработано XP: +${correctAnswers * 10}</p>
+                        <p style="font-size: 16px; color: #ccc; margin: 20px 0;">
+                            На сегодня всё! Приходи завтра! 🌅
+                        </p>
+                        <button class="back-btn" onclick="goBack()">🎮 Другие игры</button>
+                    </div>
+                `;
+            }
+
+            document.getElementById('progress').style.display = 'none';
+        }
+
+        function goBack() {
+            window.location.href = '/';
+        }
+
+        function startGame() {
+            if (!checkIfPlayedToday()) {
+                return;
+            }
+            showQuestion();
+        }
+
+        startGame();
+
+        tg.BackButton.show();
+        tg.BackButton.onClick(() => {
+            window.location.href = '/';
+        });
+    </script>
+</body>
+</html>
