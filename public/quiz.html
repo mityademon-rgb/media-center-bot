@@ -470,3 +470,102 @@
         }
 
         function
+        function checkAnswer(selected, correct, btn, fact, question) {
+            const allButtons = document.querySelectorAll('.option-btn');
+            allButtons.forEach(b => b.disabled = true);
+
+            progress.totalAnswers++;
+
+            if (selected === correct) {
+                btn.classList.add('correct');
+                progress.correctAnswers++;
+                progress.currentStreak++;
+                
+                let xpGained = 5;
+                let bonusText = '';
+                
+                // БОНУСЫ ЗА СЕРИИ
+                if (progress.currentStreak === 5) {
+                    xpGained += 10;
+                    bonusText = '<br>🔥 Бонус за 5 подряд: +10 XP!';
+                } else if (progress.currentStreak === 10) {
+                    xpGained += 25;
+                    bonusText = '<br>💥 Бонус за 10 подряд: +25 XP!';
+                }
+                
+                progress.totalXP += xpGained;
+                
+                if (progress.currentStreak > progress.bestStreak) {
+                    progress.bestStreak = progress.currentStreak;
+                }
+
+                const gameArea = document.getElementById('gameArea');
+                gameArea.innerHTML += `
+                    <div class="fact">
+                        ✅ Правильно! +${xpGained} XP${bonusText}
+                        <br><br>💡 ${fact}
+                    </div>
+                    <button class="next-btn" onclick="nextQuestion()">Следующий вопрос ➡️</button>
+                `;
+            } else {
+                btn.classList.add('wrong');
+                progress.currentStreak = 0;
+
+                allButtons.forEach(b => {
+                    if (b.textContent === correct) {
+                        b.classList.add('correct');
+                    }
+                });
+
+                const gameArea = document.getElementById('gameArea');
+                gameArea.innerHTML += `
+                    <div class="fact">
+                        ❌ Неправильно! Правильный ответ: ${correct}
+                        <br><br>💡 ${fact}
+                    </div>
+                    <button class="next-btn" onclick="nextQuestion()">Следующий вопрос ➡️</button>
+                `;
+            }
+
+            saveProgress();
+            updateProgressUI();
+            
+            if (userId !== 0) {
+                updateServerXP();
+            }
+        }
+
+        function nextQuestion() {
+            showQuestion();
+        }
+
+        async function updateServerXP() {
+            try {
+                await fetch(`/api/game/update/${userId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xp: progress.totalXP })
+                });
+            } catch (error) {
+                console.error('Ошибка обновления XP:', error);
+            }
+        }
+
+        function goBack() {
+            window.location.href = '/';
+        }
+
+        function startGame() {
+            loadProgress();
+            showQuestion();
+        }
+
+        startGame();
+
+        tg.BackButton.show();
+        tg.BackButton.onClick(() => {
+            window.location.href = '/';
+        });
+    </script>
+</body>
+</html>
