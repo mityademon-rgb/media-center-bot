@@ -2,6 +2,9 @@
 РОУТЕР КОМАНД И СООБЩЕНИЙ
 Направляет запросы в соответствующие блоки
 """
+import os  # ← ДОБАВЬ ЭТУ СТРОКУ!
+from telebot import types  # ← ДОБАВЬ ЭТУ СТРОКУ!
+
 from ai_chat import (
     handle_ai_chat_menu, handle_ai_ask, handle_ai_question,
     handle_ai_camera, handle_ai_journalism, handle_predefined_question,
