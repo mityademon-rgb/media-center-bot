@@ -207,10 +207,8 @@
         tg.expand();
         tg.ready();
 
-        // Получаем user_id
         const userId = tg.initDataUnsafe?.user?.id || 0;
 
-        // Игровые данные с РЕАЛЬНЫМИ кадрами
         const frames = [
             {
                 image: "https://1tourtv.ru/wp-content/uploads/2025/11/8f4cbd0cc3d749b5a5ce5ade2c34-scaled.jpg",
@@ -279,8 +277,6 @@
         const MAX_ATTEMPTS = 3;
         let gameActive = true;
 
-        // === ФУНКЦИИ ===
-
         function getToday() {
             return new Date().toISOString().split('T')[0];
         }
@@ -297,12 +293,10 @@
             return true;
         }
 
-        // Перемешать массив
         function shuffle(array) {
             return array.sort(() => Math.random() - 0.5);
         }
 
-        // Показать вопрос
         function showQuestion() {
             if (correctAnswers >= MAX_ATTEMPTS) {
                 localStorage.setItem('game_last_played', getToday());
@@ -334,7 +328,6 @@
             document.getElementById('progress').textContent = `Кадр ${correctAnswers + 1} из 3`;
         }
 
-        // Проверить ответ
         function checkAnswer(selected, correct, btn, fact) {
             if (!gameActive) return;
 
@@ -353,7 +346,7 @@
                     currentQuestion++;
                     gameActive = true;
                     showQuestion();
-                }, 3000);
+                }, 9000);  // ← 9 СЕКУНД НА ЧТЕНИЕ ФАКТА
             } else {
                 btn.classList.add('wrong');
 
@@ -367,11 +360,10 @@
                     currentQuestion++;
                     gameActive = true;
                     showQuestion();
-                }, 2000);
+                }, 3000);
             }
         }
 
-        // Обновить XP на сервере
         async function updateServerXP() {
             try {
                 await fetch(`/api/game/update/${userId}`, {
@@ -385,7 +377,6 @@
             }
         }
 
-        // Конец игры
         function showGameOver(alreadyPlayed) {
             const gameArea = document.getElementById('gameArea');
             
@@ -423,7 +414,6 @@
             window.location.href = '/';
         }
 
-        // Старт игры
         function startGame() {
             if (!checkIfPlayedToday()) {
                 return;
@@ -433,7 +423,6 @@
 
         startGame();
 
-        // Кнопка "Назад"
         tg.BackButton.show();
         tg.BackButton.onClick(() => {
             window.location.href = '/';
