@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Киновикторина</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: white;
+        }
+
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .game-title {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .level-badge {
+            display: inline-block;
+            background: rgba(255, 215, 0, 0.3);
+            border: 2px solid #FFD700;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 16px;
+            color: #FFD700;
+            margin-bottom: 10px;
+        }
+
+        .xp-bar-container {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            height: 25px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .xp-bar {
+            background: linear-gradient(90deg, #FFD700, #FFA500);
+            height: 100%;
+            transition: width 0.5s ease;
+            border-radius: 15px;
+        }
+
+        .xp-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 14px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #FFD700;
+        }
+
+        .game-area {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            animation: slideUp 0.6s ease;
+            margin-top: 20px;
+        }
+
+        .category-image {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .question-number {
+            text-align: center;
+            font-size: 14px;
+            opacity: 0.8;
+            margin-bottom: 15px;
+        }
+
+        .question-text {
+            font-size: 20px;
+            text-align: center;
+            margin-bottom: 25px;
+            font-weight: 500;
+            line-height: 1.4;
+        }
+
+        .options {
+            display: grid;
+            gap: 12px;
+        }
+
+        .option-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 18px;
+            border-radius: 15px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            text-align: left;
+        }
+
+        .option-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .option-btn.correct {
+            background: #51cf66;
+            border-color: #51cf66;
+            animation: pulse 0.5s ease;
+        }
+
+        .option-btn.wrong {
+            background: #ff6b6b;
+            border-color: #ff6b6b;
+            animation: shake 0.5s ease;
+        }
+
+        .option-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .fact {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            border-radius: 12px;
+            margin-top: 15px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .next-btn {
+            width: 100%;
+            background: linear-gradient(135deg, #51cf66 0%, #37b24d 100%);
+            border: none;
+            padding: 18px;
+            border-radius: 15px;
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .next-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(81, 207, 102, 0.4);
+        }
+
+        .back-btn {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            padding: 15px;
+            border-radius: 15px;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .loader {
+            text-align: center;
+            font-size: 48px;
+            padding: 50px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="game-title">🎯 Киновикторина</div>
+            <div class="level-badge" id="levelBadge">🌱 Новичок</div>
+            <div class="xp-bar-container">
+                <div class="xp-bar" id="xpBar"></div>
+                <div class="xp-text" id="xpText">0 / 50 XP</div>
+            </div>
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-value" id="correctCount">0</div>
+                    <div>Правильно</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="streakCount">0</div>
+                    <div>Серия 🔥</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="totalCount">0</div>
+                    <div>Всего</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="game-area" id="gameArea">
+            <div class="loader">🎬</div>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+
+        const userId = tg.initDataUnsafe?.user?.id || 0;
+
+        // КАТЕГОРИИ С КАРТИНКАМИ
+        const categories = {
+            fantasy: "https://1tourtv.ru/wp-content/uploads/2025/05/photo_2025-05-14_12-06-27.jpg",
+            scifi: "https://1tourtv.ru/wp-content/uploads/2025/05/photo_2025-05-14_11-37-58.jpg",
+            detective: "https://1tourtv.ru/wp-content/uploads/2025/04/photo_2025-04-29_10-50-43.jpg",
+            adventure: "https://1tourtv.ru/wp-content/uploads/2025/04/photo_2025-04-30_11-09-57.jpg",
+            romance: "https://1tourtv.ru/wp-content/uploads/2025/04/photo_2025-04-27_11-28-03.jpg",
+            fairytale: "https://1tourtv.ru/wp-content/uploads/2025/05/photo_2025-05-31_11-48-10.jpg",
+            travel: "https://1tourtv.ru/wp-content/uploads/2025/06/photo_2025-06-10_16-50-11.jpg"
+        };
+
+        // БАЗА ВОПРОСОВ (50 ПРОСТЫХ)
+        const questions = [
+            // МАРВЕЛ
+            { category: "scifi", question: "Кто главный герой Человека-паука?", correct: "Питер Паркер", options: ["Питер Паркер", "Брюс Уэйн", "Тони Старк", "Стив Роджерс"], fact: "Питер Паркер впервые появился в комиксах в 1962 году!" },
+            { category: "scifi", question: "Какого цвета Халк?", correct: "Зелёный", options: ["Зелёный", "Красный", "Синий", "Жёлтый"], fact: "Халк стал зелёным из-за проблем с печатью комиксов — изначально он был серым!" },
+            { category: "scifi", question: "Сколько камней Бесконечности?", correct: "6", options: ["6", "4", "8", "5"], fact: "Камни: Пространство, Разум, Реальность, Время, Сила и Душа." },
+            { category: "scifi", question: "Кто сыграл Железного человека?", correct: "Роберт Дауни мл.", options: ["Роберт Дауни мл.", "Крис Эванс", "Том Холланд", "Марк Руффало"], fact: "Роберт Дауни мл. заработал больше $75 миллионов за роль!" },
+            { category: "scifi", question: "В каком городе живёт Человек-паук?", correct: "Нью-Йорк", options: ["Нью-Йорк", "Лос-Анджелес", "Чикаго", "Майами"], fact: "Нью-Йорк — дом многих супергероев Marvel!" },
+            
+            // ГАРРИ ПОТТЕР
+            { category: "fantasy", question: "Как называется школа магии?", correct: "Хогвартс", options: ["Хогвартс", "Дурмстранг", "Шармбатон", "Ильверморни"], fact: "Хогвартс был основан более 1000 лет назад!" },
+            { category: "fantasy", question: "Какой факультет у Гарри?", correct: "Гриффиндор", options: ["Гриффиндор", "Слизерин", "Когтевран", "Пуффендуй"], fact: "Основатель Гриффиндора — Годрик Гриффиндор!" },
+            { category: "fantasy", question: "Кто главный злодей?", correct: "Волан-де-Морт", options: ["Волан-де-Морт", "Северус Снейп", "Драко Малфой", "Беллатриса"], fact: "Имя 'Волан-де-Морт' в переводе означает 'полёт смерти'." },
+            { category: "fantasy", question: "Сколько фильмов о Гарри Поттере?", correct: "8", options: ["8", "7", "9", "10"], fact: "Последняя книга была разделена на два фильма!" },
+            { category: "fantasy", question: "Как зовут лучшего друга Гарри?", correct: "Рон Уизли", options: ["Рон Уизли", "Драко Малфой", "Невилл Лонгботтом", "Симус Финниган"], fact: "Рон боится пауков из-за шутки братьев-близнецов!" },
+            
+            // ДИСНЕЙ/ПИКСАР
+            { category: "fairytale", question: "Кто главный герой Короля Льва?", correct: "Симба", options: ["Симба", "Муфаса", "Шрам", "Тимон"], fact: "Симба на суахили означает 'лев'!" },
+            { category: "fairytale", question: "Как зовут снеговика из Холодного сердца?", correct: "Олаф", options: ["Олаф", "Кристоф", "Свен", "Ганс"], fact: "Олаф мечтает увидеть лето!" },
+            { category: "fairytale", question: "Кто ищет отца в мультике про рыбку?", correct: "Немо", options: ["Немо", "Дори", "Марлин", "Брюс"], fact: "Немо значит 'никто' на латыни!" },
+            { category: "adventure", question: "Как зовут ковбоя из Истории игрушек?", correct: "Вуди", options: ["Вуди", "Базз", "Рекс", "Хамм"], fact: "Вуди — самая старая игрушка Энди!" },
+            { category: "adventure", question: "Куда летит дом в мультике Вверх?", correct: "В Южную Америку", options: ["В Южную Америку", "В Африку", "В Австралию", "В Азию"], fact: "Для дома использовали 10,297 шариков!" },
+            
+            // ЗВЁЗДНЫЕ ВОЙНЫ
+            { category: "scifi", question: "Продолжи: 'Да пребудет с тобой...'", correct: "Сила", options: ["Сила", "Удача", "Мир", "Радость"], fact: "Эта фраза стала самой известной в истории кино!" },
+            { category: "scifi", question: "Как зовут зелёного джедая?", correct: "Йода", options: ["Йода", "Люк", "Оби-Ван", "Энакин"], fact: "Йоде больше 900 лет!" },
+            { category: "scifi", question: "Кто отец Люка Скайуокера?", correct: "Дарт Вейдер", options: ["Дарт Вейдер", "Оби-Ван Кеноби", "Император", "Хан Соло"], fact: "Эта тайна — самый известный спойлер в кино!" },
+            { category: "scifi", question: "Как называется оружие джедаев?", correct: "Световой меч", options: ["Световой меч", "Бластер", "Лазер", "Плазменный меч"], fact: "Каждый джедай создаёт свой меч сам!" },
+            
+            // ПРИКЛЮЧЕНИЯ
+            { category: "adventure", question: "Что ищет Индиана Джонс?", correct: "Сокровища", options: ["Сокровища", "Динозавров", "Пиратов", "Космос"], fact: "Индиана Джонс боится змей!" },
+            { category: "adventure", question: "Как зовут капитана Джека?", correct: "Воробей", options: ["Воробей", "Сокол", "Орёл", "Ястреб"], fact: "Джонни Депп придумал образ сам!" },
+            { category: "adventure", question: "Сколько частей Форсажа?", correct: "Больше 10", options: ["Больше 10", "5", "7", "3"], fact: "Франшиза заработала больше $6 миллиардов!" },
+            { category: "travel", question: "Куда отправились в Хоббите?", correct: "К Одинокой горе", options: ["К Одинокой горе", "В Мордор", "В Хогвартс", "В Нарнию"], fact: "Путешествие заняло целый год!" },
+            
+            // РОМАНТИКА
+            { category: "romance", question: "Как называется корабль из Титаника?", correct: "Титаник", options: ["Титаник", "Британик", "Олимпик", "Лузитания"], fact: "Фильм заработал больше $2 миллиардов!" },
+            { category: "romance", question: "Кто сыграл Розу в Титанике?", correct: "Кейт Уинслет", options: ["Кейт Уинслет", "Леонардо ДиКаприо", "Кэмерон Диас", "Джулия Робертс"], fact: "Кейт было всего 22 года при съёмках!" },
+            { category: "romance", question: "Где познакомились герои Титаника?", correct: "На корабле", options: ["На корабле", "В городе", "В школе", "На работе"], fact: "Корабль был роскошным для своего времени!" },
+            
+            // ДЕТЕКТИВЫ
+            { category: "detective", question: "Кто самый известный детектив?", correct: "Шерлок Холмс", options: ["Шерлок Холмс", "Пуаро", "Коломбо", "Джеймс Бонд"], fact: "Холмс — самый экранизируемый персонаж!" },
+            { category: "detective", question: "Как зовут друга Шерлока?", correct: "Ватсон", options: ["Ватсон", "Мориарти", "Лестрейд", "Майкрофт"], fact: "Ватсон — врач и лучший друг!" },
+            { category: "adventure", question: "Какой номер у агента Бонда?", correct: "007", options: ["007", "006", "008", "001"], fact: "Джеймс Бонд снимался в 25+ фильмах!" },
+            
+            // ПРОСТЫЕ ФАКТЫ
+            { category: "fairytale", question: "Кто произносит 'Хакуна матата'?", correct: "Тимон и Пумба", options: ["Тимон и Пумба", "Симба", "Муфаса", "Зазу"], fact: "Означает 'Нет проблем' на суахили!" },
+            { category: "fantasy", question: "Какая метла у Гарри?", correct: "Нимбус 2000", options: ["Нимбус 2000", "Молния", "Комета", "Вихрь"], fact: "Позже у него была Молния!" },
+            { category: "scifi", question: "Как зовут робота R2-...", correct: "D2", options: ["D2", "C3PO", "BB8", "K2SO"], fact: "R2-D2 появился во всех фильмах!" },
+            { category: "adventure", question: "На чём летает Алладин?", correct: "Ковёр-самолёт", options: ["Ковёр-самолёт", "Метла", "Дракон", "Облако"], fact: "Джинн исполняет три желания!" },
+            { category: "fairytale", question: "Какой подарок получила Белль?", correct: "Роза", options: ["Роза", "Книга", "Платье", "Корона"], fact: "Красавица и Чудовище — классика Диснея!" },
+            { category: "scifi", question: "Как зовут зелёного огра?", correct: "Шрек", options: ["Шрек", "Фиона", "Осёл", "Кот"], fact: "Шрек — первый мультфильм DreamWorks!" },
+            { category: "adventure", question: "Где живёт Король Лев?", correct: "В Африке", options: ["В Африке", "В Азии", "В джунглях", "В пустыне"], fact: "Действие происходит в саванне!" },
+            { category: "fantasy", question: "Какое заклинание открывает двери?", correct: "Алохомора", options: ["Алохомора", "Экспекто Патронум", "Авада Кедавра", "Экспеллиармус"], fact: "Гермиона часто его использует!" },
+            { category: "scifi", question: "Кто создал Мстителей?", correct: "Ник Фьюри", options: ["Ник Фьюри", "Тони Старк", "Стив Роджерс", "Халк"], fact: "Агентство Щ.И.Т. собрало команду!" },
+            { category: "adventure", question: "Сколько гномов у Белоснежки?", correct: "7", options: ["7", "5", "9", "6"], fact: "Каждый гном имеет своё имя!" },
+            { category: "romance", question: "Как звали героя Форреста Гампа?", correct: "Форрест", options: ["Форрест", "Том", "Джон", "Боб"], fact: "Форрест пробежал через всю Америку!" },
+            { category: "fairytale", question: "Кто заморозила Эльзу?", correct: "Она сама", options: ["Она сама", "Анна", "Ханс", "Колдунья"], fact: "Эльза родилась с магией льда!" },
+            { category: "scifi", question: "Как зовут дроида C-3...", correct: "PO", options: ["PO", "R2", "BB", "D2"], fact: "C-3PO знает 6 миллионов языков!" },
+            { category: "adventure", question: "Кто охотится за Хищником?", correct: "Спецназ", options: ["Спецназ", "Полиция", "Армия", "Джедаи"], fact: "Арнольд Шварценеггер — главный герой!" },
+            { category: "detective", question: "Какое оружие у Бонда?", correct: "Пистолет", options: ["Пистолет", "Меч", "Лук", "Бластер"], fact: "Знаменитая фраза: 'Встряхнуть, но не смешивать!'" },
+            { category: "fairytale", question: "Кто поёт 'Let It Go'?", correct: "Эльза", options: ["Эльза", "Анна", "Олаф", "Кристоф"], fact: "Песня выиграла Оскар!" },
+            { category: "fantasy", question: "Какой patronus у Гарри?", correct: "Олень", options: ["Олень", "Волк", "Сова", "Кот"], fact: "Патронус его отца тоже был оленем!" },
+            { category: "scifi", question: "Где живёт Халк?", correct: "На Земле", options: ["На Земле", "На Марсе", "В космосе", "В Асгарде"], fact: "Халк — учёный Брюс Беннер!" },
+            { category: "adventure", question: "Как зовут льва из Мадагаскара?", correct: "Алекс", options: ["Алекс", "Марти", "Мелман", "Глория"], fact: "Алекс был звездой зоопарка!" },
+            { category: "romance", question: "Сколько лет спала Спящая красавица?", correct: "100", options: ["100", "50", "10", "20"], fact: "Её разбудил поцелуй принца!" },
+            { category: "fairytale", question: "Кто друг Базза Лайтера?", correct: "Вуди", options: ["Вуди", "Рекс", "Хамм", "Слинки"], fact: "Они стали лучшими друзьями!" }
+        ];
+
+        // СИСТЕМА ПРОГРЕССА
+        let progress = {
+            totalXP: 0,
+            correctAnswers: 0,
+            totalAnswers: 0,
+            currentStreak: 0,
+            bestStreak: 0,
+            level: "Новичок"
+        };
+
+        const levels = [
+            { name: "Новичок", emoji: "🌱", xpNeeded: 50 },
+            { name: "Знаток", emoji: "🎬", xpNeeded: 150 },
+            { name: "Киноман", emoji: "⭐", xpNeeded: 300 },
+            { name: "Эксперт", emoji: "🏆", xpNeeded: 9999 }
+        ];
+
+        let currentQuestionIndex = 0;
+        let usedQuestions = [];
+
+        // ЗАГРУЗКА ПРОГРЕССА
+        function loadProgress() {
+            const saved = localStorage.getItem('quiz_progress');
+            if (saved) {
+                progress = JSON.parse(saved);
+            }
+            updateProgressUI();
+        }
+
+        function saveProgress() {
+            localStorage.setItem('quiz_progress', JSON.stringify(progress));
+        }
+
+        function updateLevel() {
+            for (let i = levels.length - 1; i >= 0; i--) {
+                if (progress.totalXP >= levels[i].xpNeeded || i === 0) {
+                    progress.level = levels[i].name;
+                    break;
+                }
+            }
+        }
+
+        function updateProgressUI() {
+            updateLevel();
+            
+            const currentLevel = levels.find(l => l.name === progress.level);
+            const nextLevel = levels[levels.indexOf(currentLevel) + 1];
+            
+            const levelBadge = document.getElementById('levelBadge');
+            levelBadge.textContent = `${currentLevel.emoji} ${progress.level}`;
+            
+            if (nextLevel) {
+                const xpInLevel = progress.totalXP;
+                const xpNeeded = nextLevel.xpNeeded;
+                const percentage = (xpInLevel / xpNeeded) * 100;
+                
+                document.getElementById('xpBar').style.width = percentage + '%';
+                document.getElementById('xpText').textContent = `${xpInLevel} / ${xpNeeded} XP`;
+            } else {
+                document.getElementById('xpBar').style.width = '100%';
+                document.getElementById('xpText').textContent = `${progress.totalXP} XP - МАКС!`;
+            }
+            
+            document.getElementById('correctCount').textContent = progress.correctAnswers;
+            document.getElementById('streakCount').textContent = progress.currentStreak;
+            document.getElementById('totalCount').textContent = progress.totalAnswers;
+        }
+
+        function getRandomQuestion() {
+            const availableQuestions = questions.filter(q => !usedQuestions.includes(q));
+            
+            if (availableQuestions.length === 0) {
+                usedQuestions = [];
+                return questions[Math.floor(Math.random() * questions.length)];
+            }
+            
+            const question = availableQuestions[Math.floor(Math.random() * availableQuestions.length)];
+            usedQuestions.push(question);
+            
+            if (usedQuestions.length > 20) {
+                usedQuestions.shift();
+            }
+            
+            return question;
+        }
+
+        function shuffle(array) {
+            return array.sort(() => Math.random() - 0.5);
+        }
+
+        function showQuestion() {
+            const question = getRandomQuestion();
+            const gameArea = document.getElementById('gameArea');
+            
+            currentQuestionIndex++;
+
+            gameArea.innerHTML = `
+                <img src="${categories[question.category]}" alt="Категория" class="category-image">
+                <div class="question-number">Вопрос ${currentQuestionIndex}</div>
+                <div class="question-text">${question.question}</div>
+                <div class="options" id="options"></div>
+            `;
+
+            const optionsContainer = document.getElementById('options');
+            shuffle([...question.options]).forEach(option => {
+                const btn = document.createElement('button');
+                btn.className = 'option-btn';
+                btn.textContent = option;
+                btn.onclick = () => checkAnswer(option, question.correct, btn, question.fact, question);
+                optionsContainer.appendChild(btn);
+            });
+        }
+
+        function
