@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Киноцитаты</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: white;
+        }
+
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .game-title {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .progress-panel {
+            font-size: 20px;
+            font-weight: bold;
+            color: #FFD700;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        }
+
+        .game-area {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            animation: slideUp 0.6s ease;
+        }
+
+        .quote-icon {
+            text-align: center;
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        .quote-text {
+            font-size: 22px;
+            text-align: center;
+            font-style: italic;
+            line-height: 1.6;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            border-left: 4px solid #FFD700;
+        }
+
+        .question {
+            font-size: 18px;
+            text-align: center;
+            margin-bottom: 25px;
+            font-weight: 500;
+        }
+
+        .options {
+            display: grid;
+            gap: 12px;
+        }
+
+        .option-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 18px;
+            border-radius: 15px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .option-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .option-btn:active {
+            transform: scale(0.98);
+        }
+
+        .option-btn.correct {
+            background: #51cf66;
+            border-color: #51cf66;
+            animation: pulse 0.5s ease;
+        }
+
+        .option-btn.wrong {
+            background: #ff6b6b;
+            border-color: #ff6b6b;
+            animation: shake 0.5s ease;
+        }
+
+        .option-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .game-over {
+            text-align: center;
+            padding: 30px;
+        }
+
+        .game-over h2 {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        .game-over .title {
+            font-size: 28px;
+            color: #FFD700;
+            margin-bottom: 15px;
+        }
+
+        .game-over p {
+            font-size: 18px;
+            margin-bottom: 10px;
+            opacity: 0.9;
+        }
+
+        .back-btn {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 25px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .back-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(255,255,255,0.3);
+        }
+
+        .fact {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            border-radius: 12px;
+            margin-top: 15px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .loader {
+            text-align: center;
+            font-size: 48px;
+            padding: 50px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="game-title">💬 Киноцитаты</div>
+            <div class="progress-panel" id="progress">Цитата 1 из 3</div>
+        </header>
+
+        <div class="game-area" id="gameArea">
+            <div class="loader">🎬</div>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+
+        const userId = tg.initDataUnsafe?.user?.id || 0;
+
+        // БАЗА КИНОЦИТАТ
+        const quotes = [
+            {
+                quote: "Да пребудет с тобой Сила!",
+                correct: "Звёздные войны",
+                options: ["Звёздные войны", "Властелин колец", "Гарри Поттер", "Матрица"],
+                fact: "Эта фраза стала одной из самых узнаваемых в истории кино и породила множество мемов."
+            },
+            {
+                quote: "Жизнь как коробка шоколадных конфет — никогда не знаешь, что попадётся",
+                correct: "Форрест Гамп",
+                options: ["Форрест Гамп", "Зелёная миля", "Побег из Шоушенка", "1+1"],
+                fact: "Том Хэнкс импровизировал многие свои реплики в этом фильме."
+            },
+            {
+                quote: "Хакуна матата!",
+                correct: "Король Лев",
+                options: ["Король Лев", "Мадагаскар", "Зверополис", "В поисках Немо"],
+                fact: "На суахили эта фраза означает 'Нет проблем!' и стала международным хитом."
+            },
+            {
+                quote: "До бесконечности и дальше!",
+                correct: "История игрушек",
+                options: ["История игрушек", "Корпорация монстров", "Тачки", "ВАЛЛ-И"],
+                fact: "Эта фраза Базза Лайтера стала слоганом студии Pixar."
+            },
+            {
+                quote: "Я — Железный человек",
+                correct: "Железный человек",
+                options: ["Железный человек", "Мстители", "Человек-паук", "Бэтмен"],
+                fact: "Роберт Дауни мл. импровизировал эту культовую фразу в конце фильма."
+            },
+            {
+                quote: "Элементарно, Ватсон",
+                correct: "Шерлок Холмс",
+                options: ["Шерлок Холмс", "Агата Кристи", "Пуаро", "Коломбо"],
+                fact: "На самом деле эта фраза никогда не звучала в оригинальных рассказах Конан Дойля!"
+            },
+            {
+                quote: "Я вижу мёртвых людей",
+                correct: "Шестое чувство",
+                options: ["Шестое чувство", "Заклятие", "Астрал", "Синистер"],
+                fact: "Эта фраза стала одним из самых известных спойлеров в истории кино."
+            },
+            {
+                quote: "Отпусти и забудь",
+                correct: "Холодное сердце",
+                options: ["Холодное сердце", "Моана", "Рапунцель", "Покахонтас"],
+                fact: "Песня 'Let It Go' выиграла Оскар и была переведена на 41 язык."
+            },
+            {
+                quote: "Хьюстон, у нас проблемы",
+                correct: "Аполлон-13",
+                options: ["Аполлон-13", "Интерстеллар", "Гравитация", "Марсианин"],
+                fact: "Реальная фраза была: 'Хьюстон, у нас тут была проблема'."
+            },
+            {
+                quote: "Зачем так серьёзно?",
+                correct: "Тёмный рыцарь",
+                options: ["Тёмный рыцарь", "Джокер", "Бэтмен", "Хранители"],
+                fact: "Хит Леджер получил посмертный Оскар за роль Джокера."
+            },
+            {
+                quote: "Всегда!",
+                correct: "Гарри Поттер",
+                options: ["Гарри Поттер", "Властелин колец", "Хоббит", "Хроники Нарнии"],
+                fact: "Эта фраза Северуса Снейпа растрогала миллионы фанатов."
+            },
+            {
+                quote: "Один не войдёт!",
+                correct: "Властелин колец",
+                options: ["Властелин колец", "Хоббит", "Игра престолов", "Викинги"],
+                fact: "Гендальф произносит эту фразу перед битвой с Балрогом."
+            },
+            {
+                quote: "Вы в матрице",
+                correct: "Матрица",
+                options: ["Матрица", "Начало", "Бегущий по лезвию", "Остров проклятых"],
+                fact: "Режиссёры Вачовски основывались на философии и восточных религиях."
+            },
+            {
+                quote: "Ты мой лучший друг",
+                correct: "История игрушек",
+                options: ["История игрушек", "Корпорация монстров", "Вверх", "Суперсемейка"],
+                fact: "Том Хэнкс озвучивал Вуди, не видя мультфильм до премьеры."
+            },
+            {
+                quote: "Карпе диэм! Ловите момент, мальчики!",
+                correct: "Общество мёртвых поэтов",
+                options: ["Общество мёртвых поэтов", "Умница Уилл Хантинг", "Форрест Гамп", "Игры разума"],
+                fact: "Робин Уильямс импровизировал большую часть своих реплик."
+            },
+            {
+                quote: "Моё сокровище!",
+                correct: "Властелин колец",
+                options: ["Властелин колец", "Хоббит", "Пираты Карибского моря", "Индиана Джонс"],
+                fact: "Голлум был первым полностью цифровым персонажем с реалистичной мимикой."
+            },
+            {
+                quote: "Люблю запах напалма по утрам",
+                correct: "Апокалипсис сегодня",
+                options: ["Апокалипсис сегодня", "Взвод", "Цельнометаллическая оболочка", "Охотник на оленей"],
+                fact: "Эта фраза стала символом безумия войны."
+            },
+            {
+                quote: "Тебе нужна лодка побольше",
+                correct: "Челюсти",
+                options: ["Челюсти", "Мег", "Пираньи", "47 метров"],
+                fact: "Стивен Спилберг придумал эту фразу прямо на съёмочной площадке."
+            },
+            {
+                quote: "Это Спарта!",
+                correct: "300 спартанцев",
+                options: ["300 спартанцев", "Гладиатор", "Троя", "Александр"],
+                fact: "Джерард Батлер кричал эту фразу 12 раз, пока не получился идеальный дубль."
+            },
+            {
+                quote: "Я король мира!",
+                correct: "Титаник",
+                options: ["Титаник", "Аватар", "Храброе сердце", "Гладиатор"],
+                fact: "Джеймс Кэмерон повторил эту фразу, получая Оскар за фильм."
+            },
+            {
+                quote: "Семья — это навсегда",
+                correct: "Форсаж",
+                options: ["Форсаж", "Крепкий орешек", "Такси", "Перевозчик"],
+                fact: "Эта фраза стала девизом всей франшизы и повторяется в каждом фильме."
+            },
+            {
+                quote: "Я не пьян, я просто пьяный",
+                correct: "Пираты Карибского моря",
+                options: ["Пираты Карибского моря", "Ром-дневник", "Чёрная борода", "Остров сокровищ"],
+                fact: "Джонни Депп создавал образ капитана Джека Воробья, вдохновляясь Китом Ричардсом."
+            },
+            {
+                quote: "Никогда не сдавайся, никогда не отступай!",
+                correct: "Галактический квест",
+                options: ["Галактический квест", "Звёздные войны", "Стартрек", "Стражи Галактики"],
+                fact: "Этот фильм — пародия на научную фантастику, но стал культовым."
+            },
+            {
+                quote: "Я вернусь",
+                correct: "Терминатор",
+                options: ["Терминатор", "Хищник", "Коммандо", "Вспомнить всё"],
+                fact: "Шварценеггер произносит эту фразу почти в каждом своём фильме."
+            },
+            {
+                quote: "Даже в самые тёмные времена можно найти счастье, если не забывать включать свет",
+                correct: "Гарри Поттер",
+                options: ["Гарри Поттер", "Хроники Нарнии", "Властелин колец", "Золотой компас"],
+                fact: "Эти слова Дамблдора стали мотивирующей цитатой для миллионов."
+            },
+            {
+                quote: "Вы не можете справиться с правдой!",
+                correct: "Несколько хороших парней",
+                options: ["Несколько хороших парней", "Военный ныряльщик", "Топ Ган", "Офицер и джентльмен"],
+                fact: "Джек Николсон импровизировал большую часть этой сцены в суде."
+            },
+            {
+                quote: "Розы красные, фиалки синие",
+                correct: "Дедпул",
+                options: ["Дедпул", "Человек-паук", "Логан", "Люди Икс"],
+                fact: "Райан Рейнольдс ждал 11 лет, чтобы сыграть Дедпула правильно."
+            },
+            {
+                quote: "Проблема? Вызываем Охотников за привидениями!",
+                correct: "Охотники за привидениями",
+                options: ["Охотники за привидениями", "Битлджус", "Кошмар на улице Вязов", "Полтергейст"],
+                fact: "Песня стала хитом №1 и породила целую франшизу."
+            },
+            {
+                quote: "Инициализация",
+                correct: "Начало",
+                options: ["Начало", "Интерстеллар", "Престиж", "Довод"],
+                fact: "Кристофер Нолан писал сценарий 10 лет перед съёмками."
+            },
+            {
+                quote: "Человечество родилось на Земле, но не создано, чтобы умереть здесь",
+                correct: "Интерстеллар",
+                options: ["Интерстеллар", "Марсианин", "Гравитация", "Пассажиры"],
+                fact: "Физик Кип Торн был научным консультантом и позже получил Нобелевскую премию."
+            }
+        ];
+
+        let currentQuestion = 0;
+        let correctAnswers = 0;
+        const MAX_ATTEMPTS = 3;
+        let gameActive = true;
+
+        function getToday() {
+            return new Date().toISOString().split('T')[0];
+        }
+
+        function checkIfPlayedToday() {
+            const lastPlayed = localStorage.getItem('quotes_last_played');
+            const today = getToday();
+            
+            if (lastPlayed === today) {
+                showGameOver(true);
+                return false;
+            }
+            
+            return true;
+        }
+
+        function shuffle(array) {
+            return array.sort(() => Math.random() - 0.5);
+        }
+
+        function showQuestion() {
+            if (correctAnswers >= MAX_ATTEMPTS) {
+                localStorage.setItem('quotes_last_played', getToday());
+                if (userId !== 0) {
+                    updateServerXP();
+                }
+                showGameOver(false);
+                return;
+            }
+
+            const quote = quotes[currentQuestion];
+            const gameArea = document.getElementById('gameArea');
+
+            gameArea.innerHTML = `
+                <div class="quote-icon">💬</div>
+                <div class="quote-text">"${quote.quote}"</div>
+                <div class="question">Из какого это фильма?</div>
+                <div class="options" id="options"></div>
+            `;
+
+            const optionsContainer = document.getElementById('options');
+            shuffle([...quote.options]).forEach(option => {
+                const btn = document.createElement('button');
+                btn.className = 'option-btn';
+                btn.textContent = option;
+                btn.onclick = () => checkAnswer(option, quote.correct, btn, quote.fact);
+                optionsContainer.appendChild(btn);
+            });
+
+            document.getElementById('progress').textContent = `Цитата ${correctAnswers + 1} из 3`;
+        }
+
+        function checkAnswer(selected, correct, btn, fact) {
+            if (!gameActive) return;
+
+            gameActive = false;
+            const allButtons = document.querySelectorAll('.option-btn');
+            allButtons.forEach(b => b.disabled = true);
+
+            if (selected === correct) {
+                btn.classList.add('correct');
+                correctAnswers++;
+                
+                const gameArea = document.getElementById('gameArea');
+                gameArea.innerHTML += `<div class="fact">💡 ${fact}</div>`;
+
+                setTimeout(() => {
+                    currentQuestion++;
+                    gameActive = true;
+                    showQuestion();
+                }, 9000);
+            } else {
+                btn.classList.add('wrong');
+
+                allButtons.forEach(b => {
+                    if (b.textContent === correct) {
+                        b.classList.add('correct');
+                    }
+                });
+
+                setTimeout(() => {
+                    currentQuestion++;
+                    gameActive = true;
+                    showQuestion();
+                }, 3000);
+            }
+        }
+
+        async function updateServerXP() {
+            try {
+                await fetch(`/api/game/update/${userId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xp: correctAnswers * 10 })
+                });
+                console.log('✅ XP обновлён');
+            } catch (error) {
+                console.error('Ошибка обновления XP:', error);
+            }
+        }
+
+        function showGameOver(alreadyPlayed) {
+            const gameArea = document.getElementById('gameArea');
+            
+            if (alreadyPlayed) {
+                gameArea.innerHTML = `
+                    <div class="game-over">
+                        <h2>⏰</h2>
+                        <div class="title">На сегодня всё!</div>
+                        <p style="font-size: 16px; color: #ccc; margin: 20px 0;">
+                            Ты уже сыграл сегодня!<br>
+                            Приходи завтра за новыми цитатами! 🌅
+                        </p>
+                        <button class="back-btn" onclick="goBack()">🎮 Другие игры</button>
+                    </div>
+                `;
+            } else {
+                gameArea.innerHTML = `
+                    <div class="game-over">
+                        <h2>🎉</h2>
+                        <div class="title">Отлично!</div>
+                        <p>🎯 Правильных ответов: ${correctAnswers}/3</p>
+                        <p>⚡ Заработано XP: +${correctAnswers * 10}</p>
+                        <p style="font-size: 16px; color: #ccc; margin: 20px 0;">
+                            На сегодня всё! Приходи завтра! 🌅
+                        </p>
+                        <button class="back-btn" onclick="goBack()">🎮 Другие игры</button>
+                    </div>
+                `;
+            }
+
+            document.getElementById('progress').style.display = 'none';
+        }
+
+        function goBack() {
+            window.location.href = '/';
+        }
+
+        function startGame() {
+            if (!checkIfPlayedToday()) {
+                return;
+            }
+            showQuestion();
+        }
+
+        startGame();
+
+        tg.BackButton.show();
+        tg.BackButton.onClick(() => {
+            window.location.href = '/';
+        });
+    </script>
+</body>
+</html>
