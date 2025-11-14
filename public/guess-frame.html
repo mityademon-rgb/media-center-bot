@@ -38,14 +38,11 @@
             font-weight: bold;
         }
 
-        .score-panel {
-            display: flex;
-            gap: 15px;
-            font-size: 18px;
-        }
-
-        .lives {
-            color: #ff6b6b;
+        .progress-panel {
+            font-size: 20px;
+            font-weight: bold;
+            color: #FFD700;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
         }
 
         .game-area {
@@ -122,7 +119,13 @@
         }
 
         .game-over h2 {
-            font-size: 32px;
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        .game-over .title {
+            font-size: 28px;
+            color: #FFD700;
             margin-bottom: 15px;
         }
 
@@ -132,7 +135,7 @@
             opacity: 0.9;
         }
 
-        .restart-btn {
+        .back-btn {
             background: white;
             color: #667eea;
             border: none;
@@ -145,7 +148,7 @@
             transition: all 0.3s ease;
         }
 
-        .restart-btn:hover {
+        .back-btn:hover {
             transform: scale(1.05);
             box-shadow: 0 5px 20px rgba(255,255,255,0.3);
         }
@@ -191,10 +194,7 @@
     <div class="container">
         <header>
             <div class="game-title">📸 Угадай кадр</div>
-            <div class="score-panel">
-                <div class="lives">❤️ <span id="lives">3</span></div>
-                <div class="score">⭐ <span id="score">0</span></div>
-            </div>
+            <div class="progress-panel" id="progress">Кадр 1 из 3</div>
         </header>
 
         <div class="game-area" id="gameArea">
@@ -207,44 +207,95 @@
         tg.expand();
         tg.ready();
 
-        // Игровые данные
+        // Получаем user_id
+        const userId = tg.initDataUnsafe?.user?.id || 0;
+
+        // Игровые данные с РЕАЛЬНЫМИ кадрами
         const frames = [
             {
-                image: "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=800",
+                image: "https://1tourtv.ru/wp-content/uploads/2025/11/8f4cbd0cc3d749b5a5ce5ade2c34-scaled.jpg",
                 correct: "Начало",
                 options: ["Начало", "Интерстеллар", "Престиж", "Довод"],
                 fact: "Кристофер Нолан снял этот фильм без использования CGI для сцены вращающегося коридора."
             },
             {
-                image: "https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=800",
+                image: "https://1tourtv.ru/wp-content/uploads/2025/11/1114123-interstellar-le-chef-d-oeuvre-de-christopher-nolan-debarque-sur-netflix.jpg",
                 correct: "Интерстеллар",
                 options: ["Гравитация", "Интерстеллар", "Марсианин", "Прибытие"],
                 fact: "Учёные использовали уравнения для создания самого реалистичного изображения чёрной дыры."
             },
             {
-                image: "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800",
+                image: "https://1tourtv.ru/wp-content/uploads/2025/11/unnamed-scaled.jpg",
                 correct: "Матрица",
                 options: ["Матрица", "Бегущий по лезвию", "Призрак в доспехах", "Начало"],
                 fact: "Эффект 'bullet time' был революционным для своего времени и изменил киноиндустрию."
             },
             {
-                image: "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800",
+                image: "https://1tourtv.ru/wp-content/uploads/2025/11/forrest_gump_5538_16_1732220206.png",
                 correct: "Форрест Гамп",
                 options: ["Форрест Гамп", "Зелёная миля", "Побег из Шоушенка", "Список Шиндлера"],
                 fact: "Том Хэнкс не получал зарплату, а взял процент от прибыли. Он заработал $40 миллионов!"
             },
             {
-                image: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800",
+                image: "https://1tourtv.ru/wp-content/uploads/2025/11/unnamed-1-scaled.jpg",
                 correct: "Гарри Поттер",
                 options: ["Гарри Поттер", "Хоббит", "Хроники Нарнии", "Властелин колец"],
                 fact: "Хогвартс не существует в реальности - это композиция из нескольких замков Великобритании."
+            },
+            {
+                image: "https://1tourtv.ru/wp-content/uploads/2025/11/maxresdefault.jpg",
+                correct: "Король Лев",
+                options: ["Король Лев", "Мадагаскар", "Зверополис", "В поисках Немо"],
+                fact: "Аниматоры изучали настоящих львов, чтобы сделать движения персонажей реалистичными."
+            },
+            {
+                image: "https://1tourtv.ru/wp-content/uploads/2025/11/edbe0e526a-2_1390x600.jpg",
+                correct: "Мстители",
+                options: ["Мстители", "Лига справедливости", "Люди Икс", "Фантастическая четвёрка"],
+                fact: "Роберт Дауни мл. импровизировал знаменитую фразу 'Я — Железный человек'."
+            },
+            {
+                image: "https://1tourtv.ru/wp-content/uploads/2025/11/unnamed-2.jpg",
+                correct: "Человек-паук",
+                options: ["Человек-паук", "Бэтмен", "Супермен", "Железный человек"],
+                fact: "Тоби Магуайр выполнил многие трюки сам, включая сцены на небоскрёбах."
+            },
+            {
+                image: "https://1tourtv.ru/wp-content/uploads/2025/11/d4de9442c0-2_1390x600.jpg",
+                correct: "Холодное сердце",
+                options: ["Холодное сердце", "Моана", "Рапунцель", "Красавица и Чудовище"],
+                fact: "Песня 'Let It Go' была переведена на 41 язык и стала мировым хитом."
+            },
+            {
+                image: "https://1tourtv.ru/wp-content/uploads/2025/11/20250419100500877ba5f5c1.jpg",
+                correct: "История игрушек",
+                options: ["История игрушек", "Корпорация монстров", "В поисках Немо", "Суперсемейка"],
+                fact: "Это был первый полнометражный фильм, полностью созданный на компьютере (1995)."
             }
         ];
 
         let currentQuestion = 0;
-        let score = 0;
-        let lives = 3;
+        let correctAnswers = 0;
+        const MAX_ATTEMPTS = 3;
         let gameActive = true;
+
+        // === ФУНКЦИИ ===
+
+        function getToday() {
+            return new Date().toISOString().split('T')[0];
+        }
+
+        function checkIfPlayedToday() {
+            const lastPlayed = localStorage.getItem('game_last_played');
+            const today = getToday();
+            
+            if (lastPlayed === today) {
+                showGameOver(true);
+                return false;
+            }
+            
+            return true;
+        }
 
         // Перемешать массив
         function shuffle(array) {
@@ -253,8 +304,12 @@
 
         // Показать вопрос
         function showQuestion() {
-            if (currentQuestion >= frames.length || lives <= 0) {
-                gameOver();
+            if (correctAnswers >= MAX_ATTEMPTS) {
+                localStorage.setItem('game_last_played', getToday());
+                if (userId !== 0) {
+                    updateServerXP();
+                }
+                showGameOver(false);
                 return;
             }
 
@@ -275,6 +330,8 @@
                 btn.onclick = () => checkAnswer(option, frame.correct, btn, frame.fact);
                 optionsContainer.appendChild(btn);
             });
+
+            document.getElementById('progress').textContent = `Кадр ${correctAnswers + 1} из 3`;
         }
 
         // Проверить ответ
@@ -287,10 +344,8 @@
 
             if (selected === correct) {
                 btn.classList.add('correct');
-                score++;
-                document.getElementById('score').textContent = score;
+                correctAnswers++;
                 
-                // Показать факт
                 const gameArea = document.getElementById('gameArea');
                 gameArea.innerHTML += `<div class="fact">💡 ${fact}</div>`;
 
@@ -301,63 +356,87 @@
                 }, 3000);
             } else {
                 btn.classList.add('wrong');
-                lives--;
-                document.getElementById('lives').textContent = lives;
 
-                // Показать правильный ответ
                 allButtons.forEach(b => {
                     if (b.textContent === correct) {
                         b.classList.add('correct');
                     }
                 });
 
-                if (lives > 0) {
-                    setTimeout(() => {
-                        currentQuestion++;
-                        gameActive = true;
-                        showQuestion();
-                    }, 2000);
-                } else {
-                    setTimeout(() => gameOver(), 2000);
-                }
+                setTimeout(() => {
+                    currentQuestion++;
+                    gameActive = true;
+                    showQuestion();
+                }, 2000);
+            }
+        }
+
+        // Обновить XP на сервере
+        async function updateServerXP() {
+            try {
+                await fetch(`/api/game/update/${userId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ xp: correctAnswers * 10 })
+                });
+                console.log('✅ XP обновлён');
+            } catch (error) {
+                console.error('Ошибка обновления XP:', error);
             }
         }
 
         // Конец игры
-        function gameOver() {
+        function showGameOver(alreadyPlayed) {
             const gameArea = document.getElementById('gameArea');
-            const message = score >= 4 ? '🏆 Отлично!' : score >= 2 ? '👍 Неплохо!' : '💪 Попробуй ещё!';
+            
+            if (alreadyPlayed) {
+                gameArea.innerHTML = `
+                    <div class="game-over">
+                        <h2>⏰</h2>
+                        <div class="title">На сегодня всё!</div>
+                        <p style="font-size: 16px; color: #ccc; margin: 20px 0;">
+                            Ты уже сыграл сегодня!<br>
+                            Приходи завтра за новыми кадрами! 🌅
+                        </p>
+                        <button class="back-btn" onclick="goBack()">🎮 Другие игры</button>
+                    </div>
+                `;
+            } else {
+                gameArea.innerHTML = `
+                    <div class="game-over">
+                        <h2>🎉</h2>
+                        <div class="title">Отлично!</div>
+                        <p>🎯 Правильных ответов: ${correctAnswers}/3</p>
+                        <p>⚡ Заработано XP: +${correctAnswers * 10}</p>
+                        <p style="font-size: 16px; color: #ccc; margin: 20px 0;">
+                            На сегодня всё! Приходи завтра! 🌅
+                        </p>
+                        <button class="back-btn" onclick="goBack()">🎮 Другие игры</button>
+                    </div>
+                `;
+            }
 
-            gameArea.innerHTML = `
-                <div class="game-over">
-                    <h2>${message}</h2>
-                    <p>🎯 Правильных ответов: ${score}/${frames.length}</p>
-                    <p>⚡ Заработано XP: +${score * 10}</p>
-                    <button class="restart-btn" onclick="restartGame()">🔄 Играть ещё</button>
-                </div>
-            `;
-
-            // TODO: Отправить результат в бота для сохранения XP
+            document.getElementById('progress').style.display = 'none';
         }
 
-        // Перезапуск
-        function restartGame() {
-            currentQuestion = 0;
-            score = 0;
-            lives = 3;
-            gameActive = true;
-            document.getElementById('score').textContent = 0;
-            document.getElementById('lives').textContent = 3;
-            showQuestion();
+        function goBack() {
+            window.location.href = '/';
         }
 
         // Старт игры
-        showQuestion();
+        function startGame() {
+            if (!checkIfPlayedToday()) {
+                return;
+            }
+            showQuestion();
+        }
+
+        startGame();
 
         // Кнопка "Назад"
         tg.BackButton.show();
         tg.BackButton.onClick(() => {
-            window.location.href = 'index.html';
+            window.location.href = '/';
         });
     </script>
 </body>
