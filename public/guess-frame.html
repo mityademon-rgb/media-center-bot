@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Угадай кадр</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: white;
+        }
+
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            animation: fadeIn 0.5s ease;
+        }
+
+        .game-title {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .score-panel {
+            display: flex;
+            gap: 15px;
+            font-size: 18px;
+        }
+
+        .lives {
+            color: #ff6b6b;
+        }
+
+        .game-area {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            animation: slideUp 0.6s ease;
+        }
+
+        .frame-image {
+            width: 100%;
+            height: 300px;
+            object-fit: cover;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .question {
+            font-size: 20px;
+            text-align: center;
+            margin-bottom: 25px;
+            font-weight: 500;
+        }
+
+        .options {
+            display: grid;
+            gap: 12px;
+        }
+
+        .option-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 18px;
+            border-radius: 15px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .option-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .option-btn:active {
+            transform: scale(0.98);
+        }
+
+        .option-btn.correct {
+            background: #51cf66;
+            border-color: #51cf66;
+            animation: pulse 0.5s ease;
+        }
+
+        .option-btn.wrong {
+            background: #ff6b6b;
+            border-color: #ff6b6b;
+            animation: shake 0.5s ease;
+        }
+
+        .option-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .game-over {
+            text-align: center;
+            padding: 30px;
+        }
+
+        .game-over h2 {
+            font-size: 32px;
+            margin-bottom: 15px;
+        }
+
+        .game-over p {
+            font-size: 18px;
+            margin-bottom: 10px;
+            opacity: 0.9;
+        }
+
+        .restart-btn {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 25px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .restart-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(255,255,255,0.3);
+        }
+
+        .fact {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            border-radius: 12px;
+            margin-top: 15px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .loader {
+            text-align: center;
+            font-size: 48px;
+            padding: 50px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="game-title">📸 Угадай кадр</div>
+            <div class="score-panel">
+                <div class="lives">❤️ <span id="lives">3</span></div>
+                <div class="score">⭐ <span id="score">0</span></div>
+            </div>
+        </header>
+
+        <div class="game-area" id="gameArea">
+            <div class="loader">🎬</div>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+
+        // Игровые данные
+        const frames = [
+            {
+                image: "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=800",
+                correct: "Начало",
+                options: ["Начало", "Интерстеллар", "Престиж", "Довод"],
+                fact: "Кристофер Нолан снял этот фильм без использования CGI для сцены вращающегося коридора."
+            },
+            {
+                image: "https://images.unsplash.com/photo-1440404653325-ab127d49abc1?w=800",
+                correct: "Интерстеллар",
+                options: ["Гравитация", "Интерстеллар", "Марсианин", "Прибытие"],
+                fact: "Учёные использовали уравнения для создания самого реалистичного изображения чёрной дыры."
+            },
+            {
+                image: "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=800",
+                correct: "Матрица",
+                options: ["Матрица", "Бегущий по лезвию", "Призрак в доспехах", "Начало"],
+                fact: "Эффект 'bullet time' был революционным для своего времени и изменил киноиндустрию."
+            },
+            {
+                image: "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800",
+                correct: "Форрест Гамп",
+                options: ["Форрест Гамп", "Зелёная миля", "Побег из Шоушенка", "Список Шиндлера"],
+                fact: "Том Хэнкс не получал зарплату, а взял процент от прибыли. Он заработал $40 миллионов!"
+            },
+            {
+                image: "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800",
+                correct: "Гарри Поттер",
+                options: ["Гарри Поттер", "Хоббит", "Хроники Нарнии", "Властелин колец"],
+                fact: "Хогвартс не существует в реальности - это композиция из нескольких замков Великобритании."
+            }
+        ];
+
+        let currentQuestion = 0;
+        let score = 0;
+        let lives = 3;
+        let gameActive = true;
+
+        // Перемешать массив
+        function shuffle(array) {
+            return array.sort(() => Math.random() - 0.5);
+        }
+
+        // Показать вопрос
+        function showQuestion() {
+            if (currentQuestion >= frames.length || lives <= 0) {
+                gameOver();
+                return;
+            }
+
+            const frame = frames[currentQuestion];
+            const gameArea = document.getElementById('gameArea');
+
+            gameArea.innerHTML = `
+                <img src="${frame.image}" alt="Кадр из фильма" class="frame-image">
+                <div class="question">Из какого это фильма?</div>
+                <div class="options" id="options"></div>
+            `;
+
+            const optionsContainer = document.getElementById('options');
+            shuffle([...frame.options]).forEach(option => {
+                const btn = document.createElement('button');
+                btn.className = 'option-btn';
+                btn.textContent = option;
+                btn.onclick = () => checkAnswer(option, frame.correct, btn, frame.fact);
+                optionsContainer.appendChild(btn);
+            });
+        }
+
+        // Проверить ответ
+        function checkAnswer(selected, correct, btn, fact) {
+            if (!gameActive) return;
+
+            gameActive = false;
+            const allButtons = document.querySelectorAll('.option-btn');
+            allButtons.forEach(b => b.disabled = true);
+
+            if (selected === correct) {
+                btn.classList.add('correct');
+                score++;
+                document.getElementById('score').textContent = score;
+                
+                // Показать факт
+                const gameArea = document.getElementById('gameArea');
+                gameArea.innerHTML += `<div class="fact">💡 ${fact}</div>`;
+
+                setTimeout(() => {
+                    currentQuestion++;
+                    gameActive = true;
+                    showQuestion();
+                }, 3000);
+            } else {
+                btn.classList.add('wrong');
+                lives--;
+                document.getElementById('lives').textContent = lives;
+
+                // Показать правильный ответ
+                allButtons.forEach(b => {
+                    if (b.textContent === correct) {
+                        b.classList.add('correct');
+                    }
+                });
+
+                if (lives > 0) {
+                    setTimeout(() => {
+                        currentQuestion++;
+                        gameActive = true;
+                        showQuestion();
+                    }, 2000);
+                } else {
+                    setTimeout(() => gameOver(), 2000);
+                }
+            }
+        }
+
+        // Конец игры
+        function gameOver() {
+            const gameArea = document.getElementById('gameArea');
+            const message = score >= 4 ? '🏆 Отлично!' : score >= 2 ? '👍 Неплохо!' : '💪 Попробуй ещё!';
+
+            gameArea.innerHTML = `
+                <div class="game-over">
+                    <h2>${message}</h2>
+                    <p>🎯 Правильных ответов: ${score}/${frames.length}</p>
+                    <p>⚡ Заработано XP: +${score * 10}</p>
+                    <button class="restart-btn" onclick="restartGame()">🔄 Играть ещё</button>
+                </div>
+            `;
+
+            // TODO: Отправить результат в бота для сохранения XP
+        }
+
+        // Перезапуск
+        function restartGame() {
+            currentQuestion = 0;
+            score = 0;
+            lives = 3;
+            gameActive = true;
+            document.getElementById('score').textContent = 0;
+            document.getElementById('lives').textContent = 3;
+            showQuestion();
+        }
+
+        // Старт игры
+        showQuestion();
+
+        // Кнопка "Назад"
+        tg.BackButton.show();
+        tg.BackButton.onClick(() => {
+            window.location.href = 'index.html';
+        });
+    </script>
+</body>
+</html>
