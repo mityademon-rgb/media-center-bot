@@ -362,3 +362,37 @@ def handle_add_event_command(bot, message):
     """Команда /add_event (для админа)"""
     from schedule_module import handle_add_event_start
     return handle_add_event_start(bot, message)
+def setup_game_handlers(bot):
+    """Обработчики игр"""
+    
+    @bot.message_handler(func=lambda m: m.text == "🎮 Игры")
+    def show_games_menu(message):
+        """Открыть меню игр"""
+        
+        # Получаем домен Railway
+        railway_domain = os.getenv('RAILWAY_PUBLIC_DOMAIN', 'localhost:5000')
+        game_url = f"https://{railway_domain}/" if 'railway' in railway_domain else f"http://{railway_domain}/"
+        
+        # Создаём кнопку Web App
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton(
+            text="🎮 Открыть МедиаКвест",
+            web_app=types.WebAppInfo(url=game_url)
+        ))
+        
+        bot.send_message(
+            message.chat.id,
+            "🎬 **МЕДИАКВЕСТ - ИГРЫ ПРО КИНО!**\n\n"
+            "🎮 Доступные игры:\n\n"
+            "📸 **Угадай кадр**\n"
+            "Узнай фильм по кадру и получи XP!\n\n"
+            "🎨 **Композиция** _(скоро)_\n"
+            "Расставь элементы кадра правильно\n\n"
+            "✂️ **Монтаж** _(скоро)_\n"
+            "Собери сцену из кадров\n\n"
+            "💬 **Киноцитаты** _(скоро)_\n"
+            "Угадай фильм по цитате\n\n"
+            "🏆 За игры получаешь XP и повышаешь уровень!",
+            parse_mode='Markdown',
+            reply_markup=markup
+        )
