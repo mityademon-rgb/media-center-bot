@@ -440,6 +440,7 @@ if __name__=='__main__':
     if TOKEN:
         if not BASE.startswith('https://'):raise SystemExit('BASE_URL must be HTTPS for Telegram Mini Apps')
         if len(JOIN)<20 or not ADMINS:raise SystemExit('Set JOIN_SECRET (20+ characters) and ADMIN_IDS before enabling bot')
+        if not GROUP.startswith('-') or not GROUP[1:].isdigit():raise SystemExit('Set PUBLIC_CHAT_ID to the Telegram group numeric ID')
         threading.Thread(target=polling,daemon=True).start()
         threading.Thread(target=scheduler,daemon=True).start()
     print('TIMECODE listening on 127.0.0.1:'+os.getenv('PORT','8097'),flush=True)
