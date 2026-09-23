@@ -18,9 +18,9 @@ USER_NAME='kino-group'
 fail() { echo "ОШИБКА: $*" >&2; exit 1; }
 [[ $(id -u) -eq 0 ]] || fail 'Запустите от root.'
 for bin in git nginx certbot python3 curl getent ss systemctl; do command -v "$bin" >/dev/null || fail "Не найдена команда $bin. Установка остановлена."; done
-python3 - <<'PY' || fail 'Нужен Python 3.12 (в 3.13 удалён модуль cgi).'
+python3 - <<'PY' || fail 'Нужен Python 3.12 или новее.'
 import sys
-assert (3, 12) <= sys.version_info[:2] < (3, 13), sys.version
+assert sys.version_info[:2] >= (3, 12), sys.version
 PY
 nginx -t || fail 'Существующая конфигурация Nginx не проходит проверку.'
 [[ ! -e "$CONF" && ! -e "$LINK" && ! -e "$UNIT" && ! -e "$ENVFILE" ]] || fail 'Файлы приложения уже существуют. Повторная установка остановлена без перезаписи.'
