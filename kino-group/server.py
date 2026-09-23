@@ -65,6 +65,11 @@ def handle_update(update):
  elif text.startswith('/mute'):
   with conn() as c:c.execute('update users set subscribed=0 where id=?',(uid,))
   send(uid,'Уведомления выключены. /start — включить снова.')
+ elif text.startswith('/invite') and uid in ADMIN_IDS:
+  info=api('getMe',{})
+  botname=(info.get('result') or {}).get('username')
+  if botname and JOIN_CODE:send(uid,'Ссылка для участников группы:\nhttps://t.me/'+botname+'?start='+JOIN_CODE+'\nПерешлите её только своим студентам.')
+  else:send(uid,'Не удалось получить ссылку. Проверьте настройки бота.')
  elif text.startswith('/send') and uid in ADMIN_IDS:
   title=text[5:].strip()
   if not title:send(uid,'Для рассылки напишите: /send Текст объявления. Файл можно отправить следующим сообщением с подписью /send Текст.');return
@@ -84,7 +89,7 @@ def handle_update(update):
     pid=c.execute('insert into posts(kind,title,file_id,created,author) values (?,?,?,?,?)',('announcement',msg['caption'][5:].strip() or name,fid,int(time.time()),uid)).lastrowid
    threading.Thread(target=notify,args=(pid,),daemon=True).start();send(uid,'Файл опубликован. Рассылка началась.')
   except Exception:send(uid,'Не удалось загрузить файл.')
- elif uid in ADMIN_IDS:send(uid,'Команды: /send текст — объявление всем; /login — вход в браузере; /mute — отключить уведомления.')
+ elif uid in ADMIN_IDS:send(uid,'Команды: /invite — ссылка для группы; /send текст — объявление всем; /login — вход в браузере; /mute — отключить уведомления.')
  else:send(uid,'Откройте приложение по кнопке меню. /login — вход в браузере; /mute — отключить уведомления.')
 
 def poll():
