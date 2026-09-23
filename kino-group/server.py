@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT=Path(__file__).parent; DB=Path(os.getenv('DATA_DIR',ROOT/'data'))/'group.db'; UP=Path(os.getenv('UPLOAD_DIR',ROOT/'uploads')); UP.mkdir(parents=True,exist_ok=True); DB.parent.mkdir(parents=True,exist_ok=True)
-TOKEN=os.getenv('BOT_TOKEN',''); ADMIN_IDS={int(x) for x in os.getenv('ADMIN_IDS','').split(',') if x.strip().isdigit()}; BASE=os.getenv('PUBLIC_URL','').rstrip('/'); GROUP=os.getenv('GROUP_NAME','КИНО / ГРУППА'); PORT=int(os.getenv('PORT','8080')); MAX_FILE=20*1024*1024
+TOKEN=os.getenv('BOT_TOKEN',''); JOIN_CODE=os.getenv('JOIN_CODE',''); ADMIN_IDS={int(x) for x in os.getenv('ADMIN_IDS','').split(',') if x.strip().isdigit()}; BASE=os.getenv('PUBLIC_URL','').rstrip('/'); GROUP=os.getenv('GROUP_NAME','КИНО / ГРУППА'); PORT=int(os.getenv('PORT','8080')); MAX_FILE=20*1024*1024
 
 def conn():
  c=sqlite3.connect(DB,timeout=15); c.row_factory=sqlite3.Row; c.execute('pragma journal_mode=WAL'); return c
@@ -44,13 +44,20 @@ def handle_update(update):
  if not uid or chat.get('type')!='private':return
  name=' '.join(x for x in (user.get('first_name',''),user.get('last_name','')) if x).strip() or 'Студент'; text=msg.get('text','').strip()
  with conn() as c:
-  c.execute('insert into users(id,name,username,role,joined) values (?,?,?,?,?) on conflict(id) do update set username=excluded.username',(uid,name,user.get('username',''),'admin' if uid in ADMIN_IDS else 'student',int(time.time())))
+  c.execute('insert into users(id,name,username,role,joined) values (?,?,?,?,?) on conflict(id) do update set username=excluded.username',(uid,name,user.get('username',''),'admin' if uid in ADMIN_IDS else ('pending' if JOIN_CODE else 'student'),int(time.time())))
   if uid in ADMIN_IDS:c.execute("update users set role='admin' where id=?",(uid,))
  if text.startswith('/start'):
-  with conn() as c:c.execute('update users set subscribed=1 where id=?',(uid,))
+  invite=text.partition(' ')[2].strip()
+  with conn() as c:
+   role=c.execute('select role from users where id=?',(uid,)).fetchone()['role']
+   if role=='pending' and JOIN_CODE and invite!=JOIN_CODE:
+    send(uid,'Для доступа нужна пригласительная ссылка от старосты. Попросите её и откройте бота по ссылке.');return
+   c.execute("update users set subscribed=1, role=case when role='pending' then 'student' else role end where id=?",(uid,))
   menu={'inline_keyboard':[[{'text':'Открыть приложение','web_app':{'url':BASE}}]]} if BASE else None
   send(uid,'Вы подключены к группе. Здесь приходят объявления и изменения расписания. Откройте приложение, чтобы посмотреть всё в одном месте.',menu)
  elif text.startswith('/login'):
+  with conn() as c: role=c.execute('select role from users where id=?',(uid,)).fetchone()['role']
+  if role=='pending':send(uid,'Сначала откройте пригласительную ссылку от старосты.');return
   code=f'{secrets.randbelow(1000000):06d}'
   with conn() as c:c.execute('insert into codes values (?,?,?)',(code,uid,int(time.time())+300))
   send(uid,'Код для входа через браузер: <b>'+code+'</b>\nДействует 5 минут. Никому его не пересылайте.')
@@ -140,6 +147,8 @@ class Handler(BaseHTTPRequestHandler):
       if row:uid=row['user_id'];c.execute('delete from codes where code=?',(payload['code'],))
     if not uid:return self.fail('Не удалось подтвердить вход',401)
     with conn() as c:
+     existing=c.execute('select role from users where id=?',(uid,)).fetchone()
+     if JOIN_CODE and (not existing or existing['role']=='pending') and uid not in ADMIN_IDS:return self.fail('Нужна пригласительная ссылка от старосты',403)
      c.execute('insert or ignore into users(id,name,role,joined) values (?,?,?,?)',(uid,'Студент','admin' if uid in ADMIN_IDS else 'student',int(time.time())))
      token=secrets.token_urlsafe(32);c.execute('insert into sessions values (?,?,?)',(token,uid,int(time.time())+30*86400))
     return self.json({'token':token})
