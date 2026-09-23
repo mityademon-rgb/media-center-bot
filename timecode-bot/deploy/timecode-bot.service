@@ -1,0 +1,23 @@
+[Unit]
+Description=TIMECODE media center bot and Mini App
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/timecode-bot/timecode-bot
+EnvironmentFile=/etc/timecode-bot.env
+ExecStart=/usr/bin/python3 /opt/timecode-bot/timecode-bot/server.py
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/timecode-bot
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
