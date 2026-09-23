@@ -65,6 +65,7 @@ def conn():
     return c
 
 def init():
+    global GROUP
     with conn() as c:
         c.executescript('''
         create table if not exists users(id integer primary key,name text not null,lab text not null default 'kids',role text not null default 'member',enabled integer not null default 1,stage text not null default '',joined integer not null);
@@ -75,7 +76,11 @@ def init():
         create table if not exists sent(slot text not null,day text not null,primary key(slot,day));
         create table if not exists codes(code text primary key,user_id integer not null,expires integer not null);
         create table if not exists progress(user_id integer not null,game text not null,result text not null,day text not null,primary key(user_id,game));
+        create table if not exists settings(key text primary key,value text not null);
         ''')
+        if not GROUP:
+            row=c.execute("select value from settings where key='group_chat'").fetchone()
+            if row:GROUP=row['value']
 
 def api(method, data=None):
     if not TOKEN: return {}
@@ -149,6 +154,7 @@ def weekly():
         send(GROUP,'\n'.join(lines))
 
 def class_reminders():
+    if not GROUP:return
     t=now(); day=t.date().isoformat()
     with conn() as c:
         overrides=c.execute('select * from overrides where day=?',(day,)).fetchall()
@@ -172,6 +178,7 @@ def claim(slot,day):
 
 def run_slot(key,fn):
     if not GROUP and key in ('digest-am','digest-pm','tip','mission','weekly'):return
+    if key=='photos-digest' and not GROUP:return
     if claim(key,today()):
         try:fn()
         except Exception as e:print('Slot failed:',key,str(e)[:200],flush=True)
@@ -211,7 +218,13 @@ def allowed(uid):
     with conn() as c:return bool(c.execute('select 1 from users where id=?',(uid,)).fetchone())
 
 def bot_message(msg):
+    global GROUP
     chat=msg.get('chat',{}); uid=msg.get('from',{}).get('id');text=msg.get('text','').strip()
+    if chat.get('type') in ('group','supergroup') and uid in ADMINS and text.startswith('/connect'):
+        GROUP=str(chat['id'])
+        with conn() as c:c.execute("insert into settings(key,value) values('group_chat',?) on conflict(key) do update set value=excluded.value",(GROUP,))
+        send(GROUP,'🎬 <b>TIMECODE подключён к этому чату.</b> Утренняя сводка выйдет после следующей переклички.')
+        return
     if chat.get('type')!='private' or not uid:return
     start=text.partition(' ')[2] if text.startswith('/start') else ''
     if not allowed(uid):
@@ -440,7 +453,6 @@ if __name__=='__main__':
     if TOKEN:
         if not BASE.startswith('https://'):raise SystemExit('BASE_URL must be HTTPS for Telegram Mini Apps')
         if len(JOIN)<20 or not ADMINS:raise SystemExit('Set JOIN_SECRET (20+ characters) and ADMIN_IDS before enabling bot')
-        if not GROUP.startswith('-') or not GROUP[1:].isdigit():raise SystemExit('Set PUBLIC_CHAT_ID to the Telegram group numeric ID')
         threading.Thread(target=polling,daemon=True).start()
         threading.Thread(target=scheduler,daemon=True).start()
     print('TIMECODE listening on 127.0.0.1:'+os.getenv('PORT','8097'),flush=True)
