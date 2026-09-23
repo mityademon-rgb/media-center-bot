@@ -106,6 +106,11 @@ class BotTests(unittest.TestCase):
         self.assertTrue(any(call.args[0]==42 and 'Заряди камеру' in call.args[1] for call in sent.call_args_list))
         with server.conn() as c:self.assertEqual(c.execute('select answered from questions where id=1').fetchone()['answered'],1)
 
+    def test_question_in_group_is_forwarded(self):
+        with patch.object(server,'send',return_value={'ok':True,'result':{'message_id':11}}) as sent:
+            server.bot_message({'chat':{'type':'supergroup','id':-10042},'from':{'id':42},'text':'/ask@timecode_bot Можно снять интервью завтра?'})
+        self.assertTrue(any(c.args[0]==11 and 'интервью завтра' in c.args[1] for c in sent.call_args_list))
+
     def test_admin_media_broadcast(self):
         with patch.object(server,'api',return_value={'ok':True}) as tg,patch.object(server,'send',return_value={'ok':True}):
             server.bot_message({'chat':{'type':'private'},'from':{'id':11},'caption':'/send Смотрите кадр','photo':[{'file_id':'small'},{'file_id':'large'}]})
