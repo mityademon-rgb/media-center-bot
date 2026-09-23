@@ -33,6 +33,7 @@ nginx -t || fail 'Новый временный vhost не прошёл пров
 NGINX_DUMP=$(nginx -T 2>/dev/null)
 [[ "$NGINX_DUMP" == *"server_name $DOMAIN;"* ]] || fail 'Nginx не включает файл /etc/nginx/conf.d/kino-group.conf в рабочую конфигурацию.'
 systemctl reload nginx
+sleep 2
 PROBE="probe-$(date +%s)-$$"
 printf '%s\n' "$PROBE" > "$WEBROOT/.well-known/acme-challenge/$PROBE"
 PROBE_URL="http://$DOMAIN/.well-known/acme-challenge/$PROBE"
@@ -84,6 +85,7 @@ server {
 EOF
 nginx -t || fail 'HTTPS-конфигурация не прошла проверку.'
 systemctl reload nginx
+sleep 2
 # Adjust only the application's own environment file after Nginx and certificate work.
 python3 - "$ENVFILE" "$DOMAIN" <<'PY'
 import os,sys
@@ -112,5 +114,5 @@ NAME=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["userna
 trap - EXIT
 echo "ПРИЛОЖЕНИЕ: https://$DOMAIN/"
 echo "БОТ: https://t.me/$NAME"
-echo "ПРИГЛАШЕНИЕ ДЛЯ ГРУППЫ: https://t.me/$NAME?start=$JOIN_CODE"
+if [[ -t 1 ]]; then echo "ПРИГЛАШЕНИЕ ДЛЯ ГРУППЫ: https://t.me/$NAME?start=$JOIN_CODE"; fi
 echo 'Статус: systemctl status kino-group.service'
