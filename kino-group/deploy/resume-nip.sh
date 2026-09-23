@@ -6,7 +6,7 @@ PORT=8087
 CONF='/etc/nginx/sites-available/kino-group.conf'
 LINK='/etc/nginx/sites-enabled/kino-group.conf'
 ENVFILE='/etc/kino-group.env'
-WEBROOT='/var/lib/kino-group/acme'
+WEBROOT='/var/www/kino-group-acme'
 fail(){ echo "ОШИБКА: $*" >&2; exit 1; }
 [[ $(id -u) == 0 ]] || fail 'Запустите от root.'
 for bin in nginx certbot curl getent systemctl python3; do command -v "$bin" >/dev/null || fail "Не найдена команда $bin"; done
@@ -16,7 +16,7 @@ for bin in nginx certbot curl getent systemctl python3; do command -v "$bin" >/d
 nginx -t || fail 'Существующая конфигурация Nginx не проходит проверку.'
 RESOLVED=$(getent ahostsv4 "$DOMAIN" | awk '{print $1}' | sort -u)
 [[ " $RESOLVED " == *" $IP "* ]] || fail "DNS $DOMAIN не указывает на $IP с этого сервера."
-install -d -m 755 "$WEBROOT/.well-known/acme-challenge"
+install -d -m 755 -o root -g root "$WEBROOT/.well-known/acme-challenge"
 # A temporary vhost accepts ACME HTTP-01. No existing vhosts are modified.
 cat > "$CONF" <<EOF
 server {
@@ -32,6 +32,12 @@ rollback(){ status=$?; if (( status != 0 )); then rm -f "$LINK" "$CONF"; nginx -
 trap rollback EXIT
 nginx -t || fail 'Новый временный vhost не прошёл проверку.'
 systemctl reload nginx
+PROBE="probe-$(date +%s)-$$"
+printf '%s\n' "$PROBE" > "$WEBROOT/.well-known/acme-challenge/$PROBE"
+PROBE_REPLY=$(curl -fsS --max-time 8 --noproxy '*' --resolve "$DOMAIN:80:$IP" "http://$DOMAIN/.well-known/acme-challenge/$PROBE") || fail 'Nginx не отдаёт проверочный файл. Сертификат пока не запрашиваем.'
+[[ "$PROBE_REPLY" == "$PROBE" ]] || fail 'Проверочный файл отдаётся неверно. Сертификат пока не запрашиваем.'
+rm -f "$WEBROOT/.well-known/acme-challenge/$PROBE"
+echo 'Проверочный файл доступен по HTTP; запрашиваем сертификат.'
 read -r -p 'Email для уведомлений о сертификате [d-d-v@mail.ru]: ' EMAIL
 EMAIL=${EMAIL:-d-d-v@mail.ru}
 [[ "$EMAIL" == *@*.* ]] || fail 'Некорректный email.'
