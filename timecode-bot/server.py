@@ -253,6 +253,7 @@ def bot_message(msg):
         try:
             cancel=text.startswith('/cancel ');part=text.split(' ',1)[1];left,title,place=(s.strip() for s in part.split('|',2)) if not cancel else (part.strip(),'Отмена','');lab,day,*rest=left.split();at=rest[0] if rest else '00:00';dt.date.fromisoformat(day);dt.time.fromisoformat(at);assert lab in ('kids','media')
             with conn() as c:c.execute('insert into overrides(day,lab,start,title,place,cancelled) values(?,?,?,?,?,?)',(day,lab,at,title,place,int(cancel)))
+            if GROUP:send(GROUP,'📌 <b>ИЗМЕНЕНИЕ РАСПИСАНИЯ / '+('KIDS LAB' if lab=='kids' else 'MEDIA LAB')+'</b>\n'+esc(day)+' · '+('занятие отменено' if cancel else esc(at)+' · '+esc(title)+' · '+esc(place)))
             send(uid,'Изменение сохранено.');return
         except (ValueError,AssertionError):send(uid,'Формат: /change kids 2026-10-01 18:00 | Новая тема | Кабинет');return
     if uid in ADMINS and text.startswith('/send '):
@@ -428,6 +429,7 @@ class Handler(BaseHTTPRequestHandler):
                 lab=str(p['lab']);day=str(p['day']);at=str(p['start']);title=str(p.get('title','')).strip() or 'Занятие';place=str(p.get('place',''))[:80];cancel=int(bool(p.get('cancelled')))
                 assert lab in ('kids','media');dt.date.fromisoformat(day);dt.time.fromisoformat(at)
                 with conn() as c:c.execute('insert into overrides(day,lab,start,title,place,cancelled) values(?,?,?,?,?,?)',(day,lab,at,title[:90],place,cancel))
+                if GROUP:send(GROUP,'📌 <b>ИЗМЕНЕНИЕ РАСПИСАНИЯ / '+('KIDS LAB' if lab=='kids' else 'MEDIA LAB')+'</b>\n'+esc(day)+' · '+('занятие отменено' if cancel else esc(at)+' · '+esc(title[:90])+' · '+esc(place)))
                 return self.out({'ok':True})
             except (KeyError,ValueError,AssertionError):return self.out({'error':'Проверьте дату и поля'},400)
         return self.out({'error':'Нет доступа'},403)
