@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import importlib.util
+import io
 import json
 import os
 import tempfile
@@ -83,7 +84,7 @@ class BotTests(unittest.TestCase):
         self.assertIn('ПРИЁМ ДНЯ',text)
 
     def test_generated_daily_tip_cached_with_source(self):
-        result={'title':'Новый приём','body':'Уточняй действие перед съёмкой и найди хороший план.','mode':'text','source':'https://en.wikipedia.org/wiki/Shot_(filmmaking)'}
+        result={'title':'Новый приём','body':'Уточняй действие перед съёмкой и найди хороший план.','mode':'text','source':'https://blog.frame.io/camera-angle/' }
         with patch.object(server,'make_daily',return_value=result) as make:
             self.assertEqual(server.daily_content('tip',True),result)
             self.assertEqual(server.daily_content('tip',True),result)
@@ -91,11 +92,20 @@ class BotTests(unittest.TestCase):
 
     def test_ai_searches_source_and_generates_new_tip(self):
         server.AI_KEY='testing-key'
-        with patch.object(server,'creative_enabled',return_value=True), patch.object(server,'wiki_search',return_value={'title':'Camera angle','snippet':'A camera angle refers to the placement of a film camera in relation to the subject.','url':'https://en.wikipedia.org/wiki/Camera_angle'}) as lookup,patch.object(server,'ai_json',side_effect=[{'query':'camera angle cinematography'},{'title':'Выбери ракурс','body':'Ракурс камеры меняет точку зрения на героя. Выбери его прежде, чем нажать запись.'}]) as model:
+        with patch.object(server,'creative_enabled',return_value=True), patch.object(server,'industry_search',return_value={'title':'Camera angle','snippet':'A camera angle refers to the placement of a film camera in relation to the subject.','url':'https://www.studiobinder.com/blog/camera-angle/'}) as lookup,patch.object(server,'ai_json',side_effect=[{'query':'camera angle cinematography'},{'title':'Выбери ракурс','body':'Ракурс камеры меняет точку зрения на героя. Выбери его прежде, чем нажать запись.'}]) as model:
             item=server.make_daily('tip')
         self.assertEqual(lookup.call_args.args[0],'camera angle cinematography')
         self.assertEqual(model.call_count,2)
-        self.assertEqual(item['source'],'https://en.wikipedia.org/wiki/Camera_angle')
+        self.assertEqual(item['source'],'https://www.studiobinder.com/blog/camera-angle/')
+        server.AI_KEY=''
+
+    def test_search_excludes_sites_outside_film_sources(self):
+        server.AI_KEY='testing-key'
+        pages={'search_results':[{'title':'Fake','url':'https://example.com/trick','chunks':[{'text':'x'*150}]},{'title':'Film craft','url':'https://blog.frame.io/film-craft/','chunks':[{'text':'The operator plans the movement before the shot, choosing the starting position and ending position so the action remains legible.'}]}]}
+        with patch.object(server.urllib.request,'urlopen',return_value=io.BytesIO(json.dumps(pages).encode())) as request:
+            found=server.industry_search('filming movement',('blog.frame.io',))
+        self.assertEqual(found['url'],'https://blog.frame.io/film-craft/')
+        self.assertEqual(request.call_args.args[0].full_url,'https://api.moonshot.ai/v1/tools/search_pro')
         server.AI_KEY=''
 
     def test_student_question_admin_reply(self):
