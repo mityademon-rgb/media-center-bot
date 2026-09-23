@@ -20,8 +20,7 @@ install -d -m 755 -o root -g root "$WEBROOT/.well-known/acme-challenge"
 # A temporary vhost accepts ACME HTTP-01. No existing vhosts are modified.
 cat > "$CONF" <<EOF
 server {
-    listen 80;
-    listen [::]:80;
+    listen $IP:80;
     server_name $DOMAIN;
     add_header X-Kino-Vhost "kino-acme" always;
     location ^~ /.well-known/acme-challenge/ { root $WEBROOT; }
@@ -64,8 +63,7 @@ KEY="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
 # Bind only the actual web IP; other HTTPS listeners are left untouched.
 cat > "$CONF" <<EOF
 server {
-    listen 80;
-    listen [::]:80;
+    listen $IP:80;
     server_name $DOMAIN;
     location ^~ /.well-known/acme-challenge/ { root $WEBROOT; }
     location / { return 301 https://\$host\$request_uri; }
