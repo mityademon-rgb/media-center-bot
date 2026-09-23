@@ -118,6 +118,22 @@ def ai_digest(kind, facts):
     except Exception as e:
         print('DeepSeek:',str(e)[:160],flush=True);return None
 
+def ai_style(source, kind):
+    """Rewrite vetted educational copy; never rely on the model for the underlying fact."""
+    if not AI_KEY:return None
+    system=('Ты редактор подросткового медиацентра TIMECODE. '
+            'Пиши живо, весело и коротко. Не меняй фактический смысл исходника, '
+            'не добавляй неподтверждённых правил, конкретных людей или грубых шуток. '
+            'Ответ только JSON объект вида {"text":"..."}, максимум 280 символов.')
+    request='Тип: '+kind+'. Исходный проверенный текст: '+source
+    data={'model':AI_MODEL,'response_format':{'type':'json_object'},'max_tokens':170,'messages':[{'role':'system','content':system},{'role':'user','content':request}]}
+    req=urllib.request.Request('https://api.deepseek.com/chat/completions',json.dumps(data,ensure_ascii=False).encode(),{'Authorization':'Bearer '+AI_KEY,'Content-Type':'application/json'})
+    try:
+        with urllib.request.urlopen(req,timeout=18) as r:result=json.load(r)
+        rewrite=json.loads(result['choices'][0]['message']['content'])['text'].strip()
+        return rewrite[:280] if rewrite and len(rewrite)<350 else None
+    except Exception as e:print('AI style:',str(e)[:160],flush=True);return None
+
 def digest(period):
     with conn() as c:
         rows=c.execute('select u.name,a.choice,a.detail from answers a join users u on u.id=a.user_id where a.day=? and a.period=? and a.published=1 order by a.id',(today(),period)).fetchall()
@@ -135,13 +151,15 @@ def digest(period):
 def tip():
     index=(now().date()-dt.date(2026,1,1)).days % len(TIPS)
     title,body=TIPS[index]
-    send(GROUP,'⏱ <b>15:00 / ПРИЁМ ДНЯ</b>\n\n<b>'+esc(title)+'</b>\n'+esc(body)+'\n\n<a href="'+esc(BASE)+'">Открыть TIMECODE ↗</a>')
+    text=ai_style(body,'короткий полезный лайфхак с лёгкой телевизионной шуткой') or body
+    send(GROUP,'⏱ <b>15:00 / ПРИЁМ ДНЯ</b>\n\n<b>'+esc(title)+'</b>\n'+esc(text)+'\n\n<a href="'+esc(BASE)+'">Открыть TIMECODE ↗</a>')
 
 def mission():
     if not BOTNAME:return
     i=(now().date()-dt.date(2026,1,1)).days % len(MISSIONS)
     title,body,_=MISSIONS[i]
-    send(GROUP,'🎬 <b>СТРАННОЕ ЗАДАНИЕ</b>\n\n<b>'+esc(title)+'</b>\n'+esc(body),[[{'text':'Ответить боту ↗','url':'https://t.me/'+BOTNAME+'?start=mission'}]])
+    text=ai_style(body,'короткое игровое задание для телефона') or body
+    send(GROUP,'🎬 <b>СТРАННОЕ ЗАДАНИЕ</b>\n\n<b>'+esc(title)+'</b>\n'+esc(text),[[{'text':'Ответить боту ↗','url':'https://t.me/'+BOTNAME+'?start=mission'}]])
 
 def weekly():
     weekstart=(now().date()-dt.timedelta(days=6)).isoformat()
@@ -151,7 +169,9 @@ def weekly():
         lines=['🎞 <b>ТИТРЫ НЕДЕЛИ</b>','']
         lines += ['• '+esc(r['name'])+': утром — '+str(r['morning'])+', вечером — '+str(r['evening'])+'.' for r in rows]
         lines += ['','Это перекличка, не оценки. На следующей неделе будет новый дубль.']
-        send(GROUP,'\n'.join(lines))
+        recap=ai_digest('итоги недели: только числа и доброжелательная шутка',[{'name':r['name'],'morning':r['morning'],'evening':r['evening']} for r in rows])
+        if recap:send(GROUP,'🎞 <b>ТИТРЫ НЕДЕЛИ</b>\n\n'+esc(recap))
+        else:send(GROUP,'\n'.join(lines))
 
 def class_reminders():
     if not GROUP:return
