@@ -75,6 +75,13 @@ class BotTests(unittest.TestCase):
         server.init()
         self.assertEqual(server.GROUP, '-10042')
 
+    def test_tip_falls_back_when_ai_unavailable(self):
+        with patch.object(server,'ai_style',return_value=None),patch.object(server,'send') as sent:
+            server.tip()
+        text=sent.call_args.args[1]
+        self.assertIn('15:00',text)
+        self.assertIn('ПРИЁМ ДНЯ',text)
+
 
 if __name__ == '__main__':
     unittest.main()
