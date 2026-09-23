@@ -351,6 +351,12 @@ def bot_message(msg):
         with conn() as c:c.execute("insert into settings(key,value) values('group_chat',?) on conflict(key) do update set value=excluded.value",(GROUP,))
         send(GROUP,'🎬 <b>TIMECODE подключён к этому чату.</b> Утренняя сводка выйдет после следующей переклички.')
         return
+    if chat.get('type') in ('group','supergroup') and str(chat.get('id'))==GROUP and text.startswith('/ask') and allowed(uid):
+        question=text.split(' ',1)[1].strip() if ' ' in text else ''
+        if not question:send(GROUP,'Чтобы спросить, напиши /ask и свой вопрос.');return
+        delivered=ask_admins(uid,question)
+        if delivered:send(GROUP,'Вопрос передан преподавателю. Ответ придёт автору лично в бот.')
+        return
     if chat.get('type')!='private' or not uid:return
     start=text.partition(' ')[2] if text.startswith('/start') else ''
     if not allowed(uid):
