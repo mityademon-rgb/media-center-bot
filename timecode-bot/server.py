@@ -1,5 +1,4 @@
 """TIMECODE bot + Mini App. Python standard library only; one process per database."""
-import base64
 import datetime as dt
 import hashlib
 import hmac
@@ -7,7 +6,6 @@ import html
 import re
 import json
 import os
-import random
 import secrets
 import sqlite3
 import threading
@@ -26,11 +24,17 @@ ADMINS = {int(x) for x in os.getenv('ADMIN_IDS', '').split(',') if x.strip().isd
 DB = Path(os.getenv('DATABASE', str(ROOT / 'data/timecode.db'))).resolve()
 SECRET = os.getenv('SECRET', '')
 JOIN = os.getenv('JOIN_SECRET', '')
-AI_KEY = os.getenv('DEEPSEEK_API_KEY', '')
-AI_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-flash')
+AI_KEY = os.getenv('MOONSHOT_API_KEY', '')
+AI_MODEL = os.getenv('KIMI_MODEL', 'kimi-k2.6')
+AI_API = 'https://api.moonshot.ai/v1'
 TZ = ZoneInfo('Europe/Moscow')
 BOTNAME = ''
 AUTH_ATTEMPTS = {}
+SOURCE_SETS = (
+    ('blog.frame.io','studiobinder.com','nofilmschool.com','bhphotovideo.com'),
+    ('youtube.com','aputure.com','studiobinder.com','blog.frame.io'),
+    ('nofilmschool.com','blog.frame.io','poynter.org','studiobinder.com'),
+)
 TIPS = [
  ('Второй подбородок', 'Снимаешь человека снизу? Только что подарил ему второй подбородок. Подними телефон до уровня глаз — герой оценит, даже если не знает почему.'),
  ('Тишина после ответа', 'Не выключай запись сразу после ответа героя. Оставь три секунды тишины: на монтаже скажешь себе спасибо.'),
@@ -143,59 +147,51 @@ def now(): return dt.datetime.now(TZ)
 def today(): return now().date().isoformat()
 def esc(value): return html.escape(str(value), quote=False)
 
+def kimi_params():
+    return {'thinking':{'type':'disabled'}} if AI_MODEL=='kimi-k2.6' else {'reasoning_effort':'low'} if AI_MODEL=='kimi-k3' else {}
+
 def ai_digest(kind, facts):
     if not AI_KEY: return None
     prompt = ('Напиши по-русски короткую смешную сводку TIMECODE для школьного медиацентра. '
               'Используй только перечисленные факты, не добавляй людей, обстоятельства или оценки здоровья и учёбы. '
               'Не высмеивай участника. Остроумно, тепло, максимум 650 символов. '
               'Верни только JSON вида {"text":"..."}. Тема: '+kind+'; факты: '+json.dumps(facts,ensure_ascii=False))
-    req = urllib.request.Request('https://api.deepseek.com/chat/completions', json.dumps({'model':AI_MODEL,'response_format':{'type':'json_object'},'max_tokens':350,'messages':[{'role':'user','content':prompt}]}).encode(), {'Authorization':'Bearer '+AI_KEY,'Content-Type':'application/json'})
+    req = urllib.request.Request(AI_API+'/chat/completions', json.dumps({'model':AI_MODEL,'response_format':{'type':'json_object'},'max_tokens':350,'messages':[{'role':'user','content':prompt}],**kimi_params()}).encode(), {'Authorization':'Bearer '+AI_KEY,'Content-Type':'application/json'})
     try:
         with urllib.request.urlopen(req,timeout=18) as r: data=json.load(r)
         s=json.loads(data['choices'][0]['message']['content']).get('text','').strip()
         return s[:850] or None
     except Exception as e:
-        print('DeepSeek:',str(e)[:160],flush=True);return None
-
-def ai_style(source, kind):
-    """Rewrite vetted educational copy; never rely on the model for the underlying fact."""
-    if not AI_KEY:return None
-    system=('Ты редактор подросткового медиацентра TIMECODE. '
-            'Пиши живо, весело и коротко. Не меняй фактический смысл исходника, '
-            'не добавляй неподтверждённых правил, конкретных людей или грубых шуток. '
-            'Ответ только JSON объект вида {"text":"..."}, максимум 280 символов.')
-    request='Тип: '+kind+'. Исходный проверенный текст: '+source
-    data={'model':AI_MODEL,'response_format':{'type':'json_object'},'max_tokens':170,'messages':[{'role':'system','content':system},{'role':'user','content':request}]}
-    req=urllib.request.Request('https://api.deepseek.com/chat/completions',json.dumps(data,ensure_ascii=False).encode(),{'Authorization':'Bearer '+AI_KEY,'Content-Type':'application/json'})
-    try:
-        with urllib.request.urlopen(req,timeout=18) as r:result=json.load(r)
-        rewrite=json.loads(result['choices'][0]['message']['content'])['text'].strip()
-        return rewrite[:280] if rewrite and len(rewrite)<350 else None
-    except Exception as e:print('AI style:',str(e)[:160],flush=True);return None
+        print('Kimi:',str(e)[:160],flush=True);return None
 
 def ai_json(system,request,max_tokens=250):
     if not AI_KEY:return None
-    data={'model':AI_MODEL,'response_format':{'type':'json_object'},'max_tokens':max_tokens,'messages':[{'role':'system','content':system+' Ответ только JSON.'},{'role':'user','content':request}]}
-    req=urllib.request.Request('https://api.deepseek.com/chat/completions',json.dumps(data,ensure_ascii=False).encode(),{'Authorization':'Bearer '+AI_KEY,'Content-Type':'application/json'})
+    data={'model':AI_MODEL,'response_format':{'type':'json_object'},'max_tokens':max_tokens,'messages':[{'role':'system','content':system+' Ответ только JSON.'},{'role':'user','content':request}],**kimi_params()}
+    req=urllib.request.Request(AI_API+'/chat/completions',json.dumps(data,ensure_ascii=False).encode(),{'Authorization':'Bearer '+AI_KEY,'Content-Type':'application/json'})
     try:
         with urllib.request.urlopen(req,timeout=18) as response:result=json.load(response)
         obj=json.loads(result['choices'][0]['message']['content'])
         return obj if isinstance(obj,dict) else None
     except Exception as e:print('AI research:',str(e)[:160],flush=True);return None
 
-def wiki_search(query):
-    """Independent public-source lookup. Only text from Wikipedia is passed to DeepSeek."""
-    url='https://en.wikipedia.org/w/rest.php/v1/search/page?'+urllib.parse.urlencode({'q':query[:100],'limit':3})
-    req=urllib.request.Request(url,headers={'User-Agent':'TIMECODE-MediaBot/1.0 (educational-media-center)','Accept':'application/json'})
+def industry_search(query,sites):
+    """Kimi Search Pro returns passages and URLs from selected film-industry sites."""
+    if not AI_KEY:return None
+    payload={'text_query':query[:140],'limit':5,'timeout_seconds':18,'sites':list(sites)[:5]}
+    req=urllib.request.Request(AI_API+'/tools/search_pro',json.dumps(payload,ensure_ascii=False).encode(),{'Authorization':'Bearer '+AI_KEY,'Content-Type':'application/json'})
     try:
-        with urllib.request.urlopen(req,timeout=8) as response:results=json.load(response).get('pages',[])
+        with urllib.request.urlopen(req,timeout=22) as response:results=json.load(response).get('search_results',[])
         for page in results:
-            title=str(page.get('title',''))
-            snippet=re.sub('<[^>]+>','',str(page.get('excerpt','')))
-            if len(snippet)<55 or not title:continue
-            link='https://en.wikipedia.org/wiki/'+urllib.parse.quote(title.replace(' ','_'))
-            return {'title':title,'snippet':html.unescape(snippet)[:1100],'url':link}
-    except Exception as e:print('Source lookup:',str(e)[:160],flush=True)
+            url=str(page.get('url',''))
+            parsed=urllib.parse.urlsplit(url)
+            host=(parsed.hostname or '').lower()
+            if parsed.scheme!='https' or not any(host==site or host.endswith('.'+site) for site in sites):continue
+            passages=' '.join(str(x.get('text','')) for x in page.get('chunks',[])[:3])
+            excerpt=re.sub('<[^>]+>','',passages or str(page.get('snippet','')))
+            excerpt=html.unescape(excerpt).strip()
+            if len(excerpt)<100:continue
+            return {'title':str(page.get('title',''))[:150],'snippet':excerpt[:1300],'url':url}
+    except Exception as e:print('Industry search:',str(e)[:160],flush=True)
     return None
 
 def fallback_content(kind):
@@ -217,11 +213,12 @@ def make_daily(kind):
     if kind=='tip':
         previous=[]
         with conn() as c:previous=[r['title'] for r in c.execute("select title from daily_content where kind='tip' order by day desc limit 10")]
-        query=ai_json('Ты ищешь короткие достоверные факты о языке кино, операторской работе, монтаже, записи звука и интервью. Верни {"query":"короткая англоязычная поисковая фраза"}. Не повторяй недавние темы.',json.dumps({'previous':previous,'day':today()},ensure_ascii=False),100)
-        topic=str((query or {}).get('query','cinematography camera angle shot'))[:80]
-        found=wiki_search(topic)
+        sites=SOURCE_SETS[(now().date()-dt.date(2026,1,1)).days%len(SOURCE_SETS)]
+        query=ai_json('Ты редактор молодежного медиацентра. Придумай конкретную англоязычную поисковую фразу для необычного ПРАКТИЧЕСКОГО совета о съёмке на телефон, монтаже, репортаже или интервью. Ищи в заданных профессиональных медиа и у киноавторов. Не повторяй недавние темы. JSON {"query":"..."}.',json.dumps({'previous':previous,'sites':sites,'day':today()},ensure_ascii=False),120)
+        topic=str((query or {}).get('query','filmmaking practical camera sound lighting tip'))[:110]
+        found=industry_search(topic,sites)
         if not found:return default
-        drafted=ai_json('По фрагменту энциклопедической статьи придумай новый короткий практический лайфхак для подростков. Используй ТОЛЬКО подтверждённые во фрагменте сведения. Без универсальных категоричных правил, без выдуманных фактов. Лёгкая ирония, максимум 250 символов. JSON {"title":"до 45 символов","body":"..."}.',json.dumps(found,ensure_ascii=False),260)
+        drafted=ai_json('Ты остроумный автор TIMECODE. По фрагменту материала киноавтора или профильного медиа придумай короткий полезный совет для подростка с телефоном. Только то, что подтверждено во фрагменте; никаких вымышленных реплик автора или универсальных технических законов. Один неожиданный ход и лёгкая ирония, максимум 250 символов. Верни JSON {"title":"до 45 символов","body":"..."}.',json.dumps(found,ensure_ascii=False),290)
         title=str((drafted or {}).get('title','')).strip();body=str((drafted or {}).get('body','')).strip()
         if 3<=len(title)<=55 and 40<=len(body)<=320:return {'title':title,'body':body,'mode':'text','source':found['url']}
         return default
@@ -394,13 +391,13 @@ def bot_message(msg):
             with conn() as c:
                 c.execute("insert into settings(key,value) values('creative_ai',?) on conflict(key) do update set value=excluded.value",(option,))
                 c.execute('delete from daily_content where day=? and kind in (?,?)',(today(),'tip','mission'))
-            send(uid,'Самостоятельные лайфхаки и задания DeepSeek '+('включены.' if option=='on' else 'выключены. Будет выпускаться редакционный банк.'))
-        else:send(uid,'Экспериментальные идеи DeepSeek: '+('включены' if creative_enabled() else 'выключены')+'. Управление: /ai on или /ai off.')
+            send(uid,'Самостоятельные лайфхаки и задания Kimi '+('включены.' if option=='on' else 'выключены. Будет выпускаться редакционный банк.'))
+        else:send(uid,'Экспериментальные идеи Kimi: '+('включены' if creative_enabled() else 'выключены')+'. Управление: /ai on или /ai off.')
         return
     if text.startswith('/schedule') and uid in ADMINS:
         send(uid,'Добавить занятие: /lesson kids Пн 18:00 | Название | Кабинет\nОтмена или замена на дату: /change kids 2026-10-01 18:00 | Новая тема | Кабинет\nОтмена: /cancel kids 2026-10-01');return
     if uid in ADMINS and text.startswith('/help'):
-        send(uid,'<b>РЕДАКЦИЯ TIMECODE</b>\n/send Текст — написать всем. Фото, видео или документ с подписью <code>/send Текст</code> — отправить файл всем.\n/reply № Текст — ответить ученику; можно ответить прямо на сообщение с вопросом, включая фото или файл.\n/ai off — отключить новые лайфхаки и задания DeepSeek; /ai on — вернуть.\n/invite — приглашение; /schedule — расписание; /quiet — личные переклички.');return
+        send(uid,'<b>РЕДАКЦИЯ TIMECODE</b>\n/send Текст — написать всем. Фото, видео или документ с подписью <code>/send Текст</code> — отправить файл всем.\n/reply № Текст — ответить ученику; можно ответить прямо на сообщение с вопросом, включая фото или файл.\n/ai off — отключить новые лайфхаки и задания Kimi; /ai on — вернуть.\n/invite — приглашение; /schedule — расписание; /quiet — личные переклички.');return
     if uid in ADMINS and text=='/stop':
         with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
         send(uid,'Действие отменено.');return
