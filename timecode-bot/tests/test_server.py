@@ -66,6 +66,15 @@ class BotTests(unittest.TestCase):
         self.assertEqual(server.user_from_token(token)['name'], 'Матвей')
         self.assertIsNone(server.user_from_token(token.replace('42.', '11.', 1)))
 
+    def test_admin_connects_group(self):
+        server.GROUP = ''
+        with patch.object(server, 'send'):
+            server.bot_message({'chat': {'type': 'supergroup','id':-10042}, 'from': {'id':11}, 'text':'/connect'})
+        self.assertEqual(server.GROUP, '-10042')
+        server.GROUP = ''
+        server.init()
+        self.assertEqual(server.GROUP, '-10042')
+
 
 if __name__ == '__main__':
     unittest.main()
