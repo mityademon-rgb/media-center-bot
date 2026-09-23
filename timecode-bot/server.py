@@ -4,6 +4,7 @@ import datetime as dt
 import hashlib
 import hmac
 import html
+import re
 import json
 import os
 import random
@@ -77,6 +78,9 @@ def init():
         create table if not exists codes(code text primary key,user_id integer not null,expires integer not null);
         create table if not exists progress(user_id integer not null,game text not null,result text not null,day text not null,primary key(user_id,game));
         create table if not exists settings(key text primary key,value text not null);
+        create table if not exists questions(id integer primary key,user_id integer not null,body text not null,created integer not null,answered integer not null default 0);
+        create table if not exists question_receipts(admin_id integer not null,message_id integer not null,question_id integer not null,primary key(admin_id,message_id));
+        create table if not exists daily_content(day text not null,kind text not null,title text not null,body text not null,mode text not null default 'text',source text not null default '',primary key(day,kind));
         ''')
         if not GROUP:
             row=c.execute("select value from settings where key='group_chat'").fetchone()
@@ -96,6 +100,41 @@ def send(chat, text, keyboard=None):
     payload = {'chat_id':chat, 'text':text, 'parse_mode':'HTML', 'disable_web_page_preview':True}
     if keyboard: payload['reply_markup'] = {'inline_keyboard':keyboard}
     return api('sendMessage', payload)
+
+def send_attachment(chat, msg, caption):
+    """Publish a media file from Telegram by file_id; no server download."""
+    types=(('photo','sendPhoto','photo'),('document','sendDocument','document'),('video','sendVideo','video'))
+    for key,method,field in types:
+        value=msg.get(key)
+        if not value:continue
+        file_id=value[-1]['file_id'] if isinstance(value,list) else value['file_id']
+        return api(method,{'chat_id':chat,field:file_id,'caption':caption[:950]})
+    return {}
+
+def ask_admins(uid,body):
+    with conn() as c:
+        question_id=c.execute('insert into questions(user_id,body,created) values (?,?,?)',(uid,body[:2000],int(time.time()))).lastrowid
+        row=c.execute('select name from users where id=?',(uid,)).fetchone()
+    name=row['name'] if row else 'Ученик'
+    delivered=False
+    for admin_id in ADMINS:
+        response=send(admin_id,'❓ <b>ВОПРОС #'+str(question_id)+'</b> от '+esc(name)+'\n\n'+esc(body[:2000])+'\n\nОтветь прямо на это сообщение или нажми кнопку.',[[{'text':'Ответить ученику ↗','callback_data':'admin:question:'+str(question_id)}]])
+        mid=(response.get('result') or {}).get('message_id')
+        if mid:
+            with conn() as c:c.execute('insert or replace into question_receipts values (?,?,?)',(admin_id,mid,question_id))
+            delivered=True
+    return delivered
+
+def answer_question(admin_id,question_id,text='',attachment=None):
+    with conn() as c:row=c.execute('select * from questions where id=?',(question_id,)).fetchone()
+    if not row or row['answered']:
+        send(admin_id,'Вопрос не найден или на него уже ответили.');return
+    intro='✉️ <b>ОТВЕТ TIMECODE НА ТВОЙ ВОПРОС</b>\n\n'
+    result=send_attachment(row['user_id'],attachment,'Ответ TIMECODE: '+text) if attachment else send(row['user_id'],intro+esc(text))
+    if not result.get('ok'):
+        send(admin_id,'Не удалось доставить ответ ученику. Вопрос сохранён.');return
+    with conn() as c:c.execute('update questions set answered=1 where id=? and answered=0',(question_id,))
+    send(admin_id,'Ответ на вопрос #'+str(question_id)+' доставлен.')
 
 def edit(chat, message, text):
     return api('editMessageText', {'chat_id':chat,'message_id':message,'text':text,'parse_mode':'HTML'})
@@ -134,6 +173,76 @@ def ai_style(source, kind):
         return rewrite[:280] if rewrite and len(rewrite)<350 else None
     except Exception as e:print('AI style:',str(e)[:160],flush=True);return None
 
+def ai_json(system,request,max_tokens=250):
+    if not AI_KEY:return None
+    data={'model':AI_MODEL,'response_format':{'type':'json_object'},'max_tokens':max_tokens,'messages':[{'role':'system','content':system+' Ответ только JSON.'},{'role':'user','content':request}]}
+    req=urllib.request.Request('https://api.deepseek.com/chat/completions',json.dumps(data,ensure_ascii=False).encode(),{'Authorization':'Bearer '+AI_KEY,'Content-Type':'application/json'})
+    try:
+        with urllib.request.urlopen(req,timeout=18) as response:result=json.load(response)
+        obj=json.loads(result['choices'][0]['message']['content'])
+        return obj if isinstance(obj,dict) else None
+    except Exception as e:print('AI research:',str(e)[:160],flush=True);return None
+
+def wiki_search(query):
+    """Independent public-source lookup. Only text from Wikipedia is passed to DeepSeek."""
+    url='https://en.wikipedia.org/w/rest.php/v1/search/page?'+urllib.parse.urlencode({'q':query[:100],'limit':3})
+    req=urllib.request.Request(url,headers={'User-Agent':'TIMECODE-MediaBot/1.0 (educational-media-center)','Accept':'application/json'})
+    try:
+        with urllib.request.urlopen(req,timeout=8) as response:results=json.load(response).get('pages',[])
+        for page in results:
+            title=str(page.get('title',''))
+            snippet=re.sub('<[^>]+>','',str(page.get('excerpt','')))
+            if len(snippet)<55 or not title:continue
+            link='https://en.wikipedia.org/wiki/'+urllib.parse.quote(title.replace(' ','_'))
+            return {'title':title,'snippet':html.unescape(snippet)[:1100],'url':link}
+    except Exception as e:print('Source lookup:',str(e)[:160],flush=True)
+    return None
+
+def fallback_content(kind):
+    index=(now().date()-dt.date(2026,1,1)).days
+    if kind=='tip':
+        title,body=TIPS[index%len(TIPS)]
+        return {'title':title,'body':body,'mode':'text','source':''}
+    title,body,mode=MISSIONS[index%len(MISSIONS)]
+    return {'title':title,'body':body,'mode':mode,'source':''}
+
+def creative_enabled():
+    with conn() as c:
+        row=c.execute("select value from settings where key='creative_ai'").fetchone()
+    return row is None or row['value']=='on'
+
+def make_daily(kind):
+    default=fallback_content(kind)
+    if not AI_KEY or not creative_enabled():return default
+    if kind=='tip':
+        previous=[]
+        with conn() as c:previous=[r['title'] for r in c.execute("select title from daily_content where kind='tip' order by day desc limit 10")]
+        query=ai_json('Ты ищешь короткие достоверные факты о языке кино, операторской работе, монтаже, записи звука и интервью. Верни {"query":"короткая англоязычная поисковая фраза"}. Не повторяй недавние темы.',json.dumps({'previous':previous,'day':today()},ensure_ascii=False),100)
+        topic=str((query or {}).get('query','cinematography camera angle shot'))[:80]
+        found=wiki_search(topic)
+        if not found:return default
+        drafted=ai_json('По фрагменту энциклопедической статьи придумай новый короткий практический лайфхак для подростков. Используй ТОЛЬКО подтверждённые во фрагменте сведения. Без универсальных категоричных правил, без выдуманных фактов. Лёгкая ирония, максимум 250 символов. JSON {"title":"до 45 символов","body":"..."}.',json.dumps(found,ensure_ascii=False),260)
+        title=str((drafted or {}).get('title','')).strip();body=str((drafted or {}).get('body','')).strip()
+        if 3<=len(title)<=55 and 40<=len(body)<=320:return {'title':title,'body':body,'mode':'text','source':found['url']}
+        return default
+    previous=[]
+    with conn() as c:previous=[r['title'] for r in c.execute("select title from daily_content where kind='mission' order by day desc limit 10")]
+    drafted=ai_json('Ты игровой редактор медиацентра для детей и подростков. Придумай новую забавную задачу с телефоном на 1-3 минуты. Каждый день другой формат: фото предмета, наблюдение, один вопрос, короткий текст, решение в кадре. Не проси идти к незнакомцам, нарушать правила, фотографировать других без их согласия и загружать личные сведения. Доступны ответы только одним фото или коротким текстом. JSON {"title":"до 45 символов","body":"до 220 символов","mode":"photo или text"}.',json.dumps({'previous':previous,'day':today(),'fallback':default},ensure_ascii=False),260)
+    title=str((drafted or {}).get('title','')).strip();body=str((drafted or {}).get('body','')).strip();mode=str((drafted or {}).get('mode',''))
+    if 3<=len(title)<=55 and 25<=len(body)<=260 and mode in ('photo','text'):return {'title':title,'body':body,'mode':mode,'source':''}
+    return default
+
+def daily_content(kind,generate=False):
+    day=today()
+    with conn() as c:row=c.execute('select title,body,mode,source from daily_content where day=? and kind=?',(day,kind)).fetchone()
+    if row:return dict(row)
+    if not generate:return fallback_content(kind)
+    value=make_daily(kind)
+    with conn() as c:
+        c.execute('insert or ignore into daily_content(day,kind,title,body,mode,source) values(?,?,?,?,?,?)',(day,kind,value['title'],value['body'],value['mode'],value['source']))
+        row=c.execute('select title,body,mode,source from daily_content where day=? and kind=?',(day,kind)).fetchone()
+    return dict(row)
+
 def digest(period):
     with conn() as c:
         rows=c.execute('select u.name,a.choice,a.detail from answers a join users u on u.id=a.user_id where a.day=? and a.period=? and a.published=1 order by a.id',(today(),period)).fetchall()
@@ -149,17 +258,14 @@ def digest(period):
     send(GROUP,heading+'\n\n'+body)
 
 def tip():
-    index=(now().date()-dt.date(2026,1,1)).days % len(TIPS)
-    title,body=TIPS[index]
-    text=ai_style(body,'короткий полезный лайфхак с лёгкой телевизионной шуткой') or body
-    send(GROUP,'⏱ <b>15:00 / ПРИЁМ ДНЯ</b>\n\n<b>'+esc(title)+'</b>\n'+esc(text)+'\n\n<a href="'+esc(BASE)+'">Открыть TIMECODE ↗</a>')
+    item=daily_content('tip',True)
+    source='\n<a href="'+html.escape(item['source'],quote=True)+'">Откуда идея ↗</a>' if item['source'] else ''
+    send(GROUP,'⏱ <b>15:00 / ПРИЁМ ДНЯ</b>\n\n<b>'+esc(item['title'])+'</b>\n'+esc(item['body'])+source+'\n\n<a href="'+html.escape(BASE,quote=True)+'">Открыть TIMECODE ↗</a>')
 
 def mission():
     if not BOTNAME:return
-    i=(now().date()-dt.date(2026,1,1)).days % len(MISSIONS)
-    title,body,_=MISSIONS[i]
-    text=ai_style(body,'короткое игровое задание для телефона') or body
-    send(GROUP,'🎬 <b>СТРАННОЕ ЗАДАНИЕ</b>\n\n<b>'+esc(title)+'</b>\n'+esc(text),[[{'text':'Ответить боту ↗','url':'https://t.me/'+BOTNAME+'?start=mission'}]])
+    item=daily_content('mission',True)
+    send(GROUP,'🎬 <b>СТРАННОЕ ЗАДАНИЕ</b>\n\n<b>'+esc(item['title'])+'</b>\n'+esc(item['body']),[[{'text':'Ответить боту ↗','url':'https://t.me/'+BOTNAME+'?start=mission'}]])
 
 def weekly():
     weekstart=(now().date()-dt.timedelta(days=6)).isoformat()
@@ -255,7 +361,9 @@ def bot_message(msg):
         if start=='mission':
             with conn() as c:c.execute("update users set stage='mission' where id=?",(uid,))
             send(uid,'🎬 Пришли ответ на сегодняшнее задание: фото или одну короткую фразу. После отправки выберешь, показывать ли её всем.');return
-        send(uid,'<b>TIMECODE на связи.</b>\nУтром и вечером здесь перекличка. Игры, уроки и расписание — в приложении.',[[{'text':'Открыть TIMECODE ↗','web_app':{'url':BASE}}]] if BASE else None)
+        keys=[[{'text':'Открыть TIMECODE ↗','web_app':{'url':BASE}}]] if BASE else []
+        if uid in ADMINS:keys += [[{'text':'📣 Написать всем','callback_data':'admin:publish'},{'text':'❓ Вопросы','callback_data':'admin:questions'}]]
+        send(uid,'<b>TIMECODE на связи.</b>\nУтром и вечером здесь перекличка. Игры, уроки и расписание — в приложении.',keys)
         return
     if text.startswith('/login'):
         code=f'{secrets.randbelow(1000000):06d}'
@@ -274,8 +382,34 @@ def bot_message(msg):
         send(uid,'Лаборатория: '+('Kids Lab' if lab=='kids' else 'Media Lab'));return
     if text.startswith('/invite') and uid in ADMINS:
         send(uid,'Ссылка для учеников: https://t.me/'+BOTNAME+'?start='+JOIN if JOIN else 'Сначала настрой JOIN_SECRET.');return
+    if uid in ADMINS and text.startswith('/ai'):
+        option=text.partition(' ')[2].strip().lower()
+        if option in ('on','off'):
+            with conn() as c:
+                c.execute("insert into settings(key,value) values('creative_ai',?) on conflict(key) do update set value=excluded.value",(option,))
+                c.execute('delete from daily_content where day=? and kind in (?,?)',(today(),'tip','mission'))
+            send(uid,'Самостоятельные лайфхаки и задания DeepSeek '+('включены.' if option=='on' else 'выключены. Будет выпускаться редакционный банк.'))
+        else:send(uid,'Экспериментальные идеи DeepSeek: '+('включены' if creative_enabled() else 'выключены')+'. Управление: /ai on или /ai off.')
+        return
     if text.startswith('/schedule') and uid in ADMINS:
         send(uid,'Добавить занятие: /lesson kids Пн 18:00 | Название | Кабинет\nОтмена или замена на дату: /change kids 2026-10-01 18:00 | Новая тема | Кабинет\nОтмена: /cancel kids 2026-10-01');return
+    if uid in ADMINS and text.startswith('/help'):
+        send(uid,'<b>РЕДАКЦИЯ TIMECODE</b>\n/send Текст — написать всем. Фото, видео или документ с подписью <code>/send Текст</code> — отправить файл всем.\n/reply № Текст — ответить ученику; можно ответить прямо на сообщение с вопросом, включая фото или файл.\n/ai off — отключить новые лайфхаки и задания DeepSeek; /ai on — вернуть.\n/invite — приглашение; /schedule — расписание; /quiet — личные переклички.');return
+    if uid in ADMINS and text=='/stop':
+        with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
+        send(uid,'Действие отменено.');return
+    if uid in ADMINS and text.startswith('/reply '):
+        parts=text.split(' ',2)
+        if len(parts)<3 or not parts[1].isdigit():send(uid,'Напиши: /reply 12 Текст ответа');return
+        answer_question(uid,int(parts[1]),parts[2]);return
+    if uid in ADMINS and msg.get('reply_to_message'):
+        reply_id=msg['reply_to_message'].get('message_id')
+        with conn() as c:receipt=c.execute('select question_id from question_receipts where admin_id=? and message_id=?',(uid,reply_id)).fetchone()
+        if receipt:
+            reply_text=(msg.get('caption') or text).strip()
+            if not reply_text and not (msg.get('photo') or msg.get('document') or msg.get('video')):
+                send(uid,'Пришли текст, фото, видео или документ в ответ на вопрос.');return
+            answer_question(uid,receipt['question_id'],reply_text,msg if msg.get('photo') or msg.get('document') or msg.get('video') else None);return
     if uid in ADMINS and text.startswith('/lesson '):
         try:
             left,title,place=(s.strip() for s in text[8:].split('|',2));lab,day,at=left.split();days=['пн','вт','ср','чт','пт','сб','вс'];weekday=days.index(day.lower());assert lab in ('kids','media');dt.time.fromisoformat(at)
@@ -289,15 +423,40 @@ def bot_message(msg):
             if GROUP:send(GROUP,'📌 <b>ИЗМЕНЕНИЕ РАСПИСАНИЯ / '+('KIDS LAB' if lab=='kids' else 'MEDIA LAB')+'</b>\n'+esc(day)+' · '+('занятие отменено' if cancel else esc(at)+' · '+esc(title)+' · '+esc(place)))
             send(uid,'Изменение сохранено.');return
         except (ValueError,AssertionError):send(uid,'Формат: /change kids 2026-10-01 18:00 | Новая тема | Кабинет');return
-    if uid in ADMINS and text.startswith('/send '):
-        send(GROUP,'📢 <b>TIMECODE</b>\n'+esc(text[6:]))
-        send(uid,'Опубликовано в общем чате.');return
+    caption=(msg.get('caption') or '').strip()
+    if uid in ADMINS and (text.startswith('/send ') or caption.startswith('/send')):
+        if not GROUP:send(uid,'Сначала добавь бота в общий чат и напиши там /connect.');return
+        body=(text if text.startswith('/send ') else caption)[5:].strip()
+        if not body and not (msg.get('photo') or msg.get('document') or msg.get('video')):
+            send(uid,'Добавь текст после /send или отправь файл с подписью /send Название.');return
+        result=send_attachment(GROUP,msg,'TIMECODE / '+body) if msg.get('photo') or msg.get('document') or msg.get('video') else send(GROUP,'📢 <b>TIMECODE</b>\n'+esc(body))
+        send(uid,'Опубликовано в общем чате.' if result.get('ok') else 'Не удалось отправить. Проверь права бота в общем чате.');return
+    if uid not in ADMINS and text.startswith('/ask '):
+        question=text[5:].strip()
+        if not question:send(uid,'Напиши вопрос после /ask.');return
+        if ask_admins(uid,question):send(uid,'Вопрос ушёл преподавателю. Ответ придёт сюда.')
+        else:send(uid,'Пока не получилось передать вопрос. Попробуй чуть позже.')
+        return
     with conn() as c: u=c.execute('select stage from users where id=?',(uid,)).fetchone()
     stage=u['stage'] if u else ''
+    if uid in ADMINS and stage=='admin_publish':
+        if not GROUP:send(uid,'Сначала подключи общий чат командой /connect внутри чата.');return
+        body=(msg.get('caption') or text).strip()
+        if not body and not (msg.get('photo') or msg.get('document') or msg.get('video')):send(uid,'Пришли текст, фото, видео или документ. /stop — отменить.');return
+        result=send_attachment(GROUP,msg,'TIMECODE / '+body) if msg.get('photo') or msg.get('document') or msg.get('video') else send(GROUP,'📢 <b>TIMECODE</b>\n'+esc(body))
+        if result.get('ok'):
+            with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
+        send(uid,'Опубликовано в общем чате.' if result.get('ok') else 'Не отправилось. Режим публикации сохранён, попробуй ещё раз.');return
+    if uid in ADMINS and stage.startswith('admin_question:'):
+        question_id=int(stage.split(':')[1]);response_text=(msg.get('caption') or text).strip()
+        if not response_text and not (msg.get('photo') or msg.get('document') or msg.get('video')):send(uid,'Пришли ответ текстом или файлом. /stop — отменить.');return
+        answer_question(uid,question_id,response_text,msg if msg.get('photo') or msg.get('document') or msg.get('video') else None)
+        with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
+        return
     photo=msg.get('photo',[])[-1]['file_id'] if msg.get('photo') else ''
     if stage=='mission':
         if not photo and not text:send(uid,'Пришли фото или короткую фразу.');return
-        kind=MISSIONS[(now().date()-dt.date(2026,1,1)).days % len(MISSIONS)][2]
+        kind=daily_content('mission')['mode']
         if kind=='photo' and not photo:send(uid,'Сегодня фото задание. Отправь один кадр.');return
         with conn() as c:
             c.execute('insert into missions(user_id,day,kind,answer,photo,published) values(?,?,?,?,?,0) on conflict(user_id,day) do update set answer=excluded.answer,photo=excluded.photo,published=0',(uid,today(),kind,(msg.get('caption') or text)[:400],photo))
@@ -311,12 +470,39 @@ def bot_message(msg):
             c.execute("update users set stage='' where id=?",(uid,))
         send(uid,'Забрал в блокнот. Опубликовать твой ответ в общей сводке?',[[{'text':'Да, можно','callback_data':'share:'+period+':yes'}],[{'text':'Только мне','callback_data':'share:'+period+':no'}]])
         return
-    send(uid,'Открой приложение или подожди утреннюю перекличку. /quiet — выключить личные сообщения; /live — включить. /lab kids или /lab media — выбрать лабораторию.')
+    question=(msg.get('caption') or text).strip()
+    if uid in ADMINS:
+        send(uid,'Для общего чата: /send Текст или фото с подписью /send Текст. Вопросы учеников придут сюда; отвечай ответом на сообщение. /help — все команды.');return
+    if question.startswith('/ask '):question=question[5:].strip()
+    if question and not question.startswith('/'):
+        if ask_admins(uid,question):send(uid,'Вопрос ушёл преподавателю. Ответ придёт сюда.')
+        else:send(uid,'Пока не получилось передать вопрос. Попробуй чуть позже.')
+        return
+    send(uid,'Хочешь спросить преподавателя? Просто напиши вопрос одним сообщением. Открыть игры и расписание можно через меню бота.')
 
 def callback(q):
     uid=q.get('from',{}).get('id');data=q.get('data','');msg=q.get('message',{});cid=msg.get('chat',{}).get('id')
     if not uid or not allowed(uid):return
     api('answerCallbackQuery',{'callback_query_id':q['id']})
+    if uid in ADMINS and data=='admin:publish':
+        with conn() as c:c.execute("update users set stage='admin_publish' where id=?",(uid,))
+        send(uid,'📣 Отправь сообщение, фото, видео или документ. Опубликую в общем чате. /stop — отменить.')
+        return
+    if uid in ADMINS and data=='admin:questions':
+        with conn() as c:rows=c.execute('select q.id,q.body,u.name from questions q join users u on q.user_id=u.id where q.answered=0 order by q.id desc limit 5').fetchall()
+        if not rows:send(uid,'Неотвеченных вопросов пока нет.');return
+        for row in rows:
+            send(uid,'❓ <b>ВОПРОС #'+str(row['id'])+'</b> от '+esc(row['name'])+'\n'+esc(row['body'][:300]),[[{'text':'Ответить ↗','callback_data':'admin:question:'+str(row['id'])}]])
+        return
+    if uid in ADMINS and data.startswith('admin:question:'):
+        number=data.split(':')[-1]
+        if not number.isdigit():return
+        with conn() as c:
+            row=c.execute('select answered from questions where id=?',(int(number),)).fetchone()
+            if row and not row['answered']:c.execute('update users set stage=? where id=?',('admin_question:'+number,uid))
+        if not row or row['answered']:send(uid,'На этот вопрос уже ответили.');return
+        send(uid,'Ответь на вопрос #'+number+' следующим сообщением: текст, фото, видео или документ. /stop — отменить.')
+        return
     if data.startswith('mood:'):
         try:_,period,choice=data.split(':',2)
         except ValueError:return
@@ -421,7 +607,8 @@ class Handler(BaseHTTPRequestHandler):
                 changes=[dict(r) for r in c.execute('select * from overrides where day>=? order by day,start',(today(),))]
                 progress=[dict(r) for r in c.execute('select * from progress where user_id=?',(u['id'],))]
                 latest=[dict(r) for r in c.execute('select day,period,choice,detail from answers where user_id=? order by id desc limit 8',(u['id'],))]
-            return self.out({'me':{'id':u['id'],'name':u['name'],'lab':u['lab'],'role':u['role'],'enabled':bool(u['enabled'])},'lessons':lessons,'changes':changes,'progress':progress,'latest':latest,'tip':TIPS[(now().date()-dt.date(2026,1,1)).days%len(TIPS)],'mission':MISSIONS[(now().date()-dt.date(2026,1,1)).days%len(MISSIONS)],'date':today(),'bot':BOTNAME})
+            tip_item=daily_content('tip');mission_item=daily_content('mission')
+            return self.out({'me':{'id':u['id'],'name':u['name'],'lab':u['lab'],'role':u['role'],'enabled':bool(u['enabled'])},'lessons':lessons,'changes':changes,'progress':progress,'latest':latest,'tip':[tip_item['title'],tip_item['body']],'mission':[mission_item['title'],mission_item['body'],mission_item['mode']],'date':today(),'bot':BOTNAME})
         if path not in ('/','/app.js','/style.css'):return self.out({'error':'Не найдено'},404)
         file=ROOT/'static'/('index.html' if path=='/' else path[1:]);blob=file.read_bytes()
         self.send_response(200);self.send_header('Content-Type',{'html':'text/html','js':'text/javascript','css':'text/css'}[file.suffix[1:]]+'; charset=utf-8');self.send_header('Content-Length',str(len(blob)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(blob)
