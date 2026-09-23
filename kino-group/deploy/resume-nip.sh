@@ -23,6 +23,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name $DOMAIN;
+    add_header X-Kino-Vhost "kino-acme" always;
     location ^~ /.well-known/acme-challenge/ { root $WEBROOT; }
     location / { return 404; }
 }
@@ -34,8 +35,22 @@ nginx -t || fail 'Новый временный vhost не прошёл пров
 systemctl reload nginx
 PROBE="probe-$(date +%s)-$$"
 printf '%s\n' "$PROBE" > "$WEBROOT/.well-known/acme-challenge/$PROBE"
-PROBE_REPLY=$(curl -fsS --max-time 8 --noproxy '*' --resolve "$DOMAIN:80:$IP" "http://$DOMAIN/.well-known/acme-challenge/$PROBE") || fail 'Nginx не отдаёт проверочный файл. Сертификат пока не запрашиваем.'
-[[ "$PROBE_REPLY" == "$PROBE" ]] || fail 'Проверочный файл отдаётся неверно. Сертификат пока не запрашиваем.'
+PROBE_URL="http://$DOMAIN/.well-known/acme-challenge/$PROBE"
+PROBE_HEADERS=$(mktemp)
+PROBE_REPLY=$(curl -sS --max-time 8 --noproxy '*' --resolve "$DOMAIN:80:$IP" -D "$PROBE_HEADERS" "$PROBE_URL") || true
+if [[ "$PROBE_REPLY" != "$PROBE" ]]; then
+    echo "Диагностика: ожидали $PROBE; получили: ${PROBE_REPLY:0:120}" >&2
+    cat "$PROBE_HEADERS" >&2
+    echo 'Права доступа к файлу:' >&2
+    namei -l "$WEBROOT/.well-known/acme-challenge/$PROBE" >&2 || true
+    echo 'Последние ошибки Nginx:' >&2
+    tail -n 12 /var/log/nginx/error.log >&2 || true
+    echo 'Проверка расположения временного vhost:' >&2
+    nginx -T 2>/dev/null | grep -n -A 8 -B 3 "server_name $DOMAIN" | head -n 40 >&2 || true
+    rm -f "$PROBE_HEADERS"
+    fail 'Пробный файл не отдан. Сертификат пока не запрашиваем.'
+fi
+rm -f "$PROBE_HEADERS"
 rm -f "$WEBROOT/.well-known/acme-challenge/$PROBE"
 echo 'Проверочный файл доступен по HTTP; запрашиваем сертификат.'
 read -r -p 'Email для уведомлений о сертификате [d-d-v@mail.ru]: ' EMAIL
