@@ -76,11 +76,53 @@ class BotTests(unittest.TestCase):
         self.assertEqual(server.GROUP, '-10042')
 
     def test_tip_falls_back_when_ai_unavailable(self):
-        with patch.object(server,'ai_style',return_value=None),patch.object(server,'send') as sent:
+        with patch.object(server,'make_daily',return_value=server.fallback_content('tip')),patch.object(server,'send') as sent:
             server.tip()
         text=sent.call_args.args[1]
         self.assertIn('15:00',text)
         self.assertIn('ПРИЁМ ДНЯ',text)
+
+    def test_generated_daily_tip_cached_with_source(self):
+        result={'title':'Новый приём','body':'Уточняй действие перед съёмкой и найди хороший план.','mode':'text','source':'https://en.wikipedia.org/wiki/Shot_(filmmaking)'}
+        with patch.object(server,'make_daily',return_value=result) as make:
+            self.assertEqual(server.daily_content('tip',True),result)
+            self.assertEqual(server.daily_content('tip',True),result)
+        make.assert_called_once()
+
+    def test_ai_searches_source_and_generates_new_tip(self):
+        server.AI_KEY='testing-key'
+        with patch.object(server,'creative_enabled',return_value=True), patch.object(server,'wiki_search',return_value={'title':'Camera angle','snippet':'A camera angle refers to the placement of a film camera in relation to the subject.','url':'https://en.wikipedia.org/wiki/Camera_angle'}) as lookup,patch.object(server,'ai_json',side_effect=[{'query':'camera angle cinematography'},{'title':'Выбери ракурс','body':'Ракурс камеры меняет точку зрения на героя. Выбери его прежде, чем нажать запись.'}]) as model:
+            item=server.make_daily('tip')
+        self.assertEqual(lookup.call_args.args[0],'camera angle cinematography')
+        self.assertEqual(model.call_count,2)
+        self.assertEqual(item['source'],'https://en.wikipedia.org/wiki/Camera_angle')
+        server.AI_KEY=''
+
+    def test_student_question_admin_reply(self):
+        with patch.object(server,'send',return_value={'ok':True,'result':{'message_id':77}}) as sent:
+            server.bot_message({'chat':{'type':'private'},'from':{'id':42},'text':'Как подготовиться к съёмке?'})
+            self.assertIn('ВОПРОС #1',sent.call_args_list[0].args[1])
+            server.bot_message({'chat':{'type':'private'},'from':{'id':11},'text':'Заряди камеру и проверь звук.','reply_to_message':{'message_id':77}})
+        self.assertTrue(any(call.args[0]==42 and 'Заряди камеру' in call.args[1] for call in sent.call_args_list))
+        with server.conn() as c:self.assertEqual(c.execute('select answered from questions where id=1').fetchone()['answered'],1)
+
+    def test_admin_media_broadcast(self):
+        with patch.object(server,'api',return_value={'ok':True}) as tg,patch.object(server,'send',return_value={'ok':True}):
+            server.bot_message({'chat':{'type':'private'},'from':{'id':11},'caption':'/send Смотрите кадр','photo':[{'file_id':'small'},{'file_id':'large'}]})
+        self.assertEqual(tg.call_args.args[0],'sendPhoto')
+        self.assertEqual(tg.call_args.args[1]['photo'],'large')
+        self.assertNotIn('/send',tg.call_args.args[1]['caption'])
+
+    def test_admin_publish_button_and_ai_switch(self):
+        with patch.object(server,'api',return_value={}),patch.object(server,'send',return_value={'ok':True}) as sent:
+            server.callback({'id':'callback','from':{'id':11},'data':'admin:publish','message':{'chat':{'id':11}}})
+            server.bot_message({'chat':{'type':'private'},'from':{'id':11},'text':'Завтра съёмка в студии'})
+            self.assertTrue(any(c.args[0]=='-10042' and 'Завтра съёмка' in c.args[1] for c in sent.call_args_list))
+            server.bot_message({'chat':{'type':'private'},'from':{'id':11},'text':'/ai off'})
+        self.assertFalse(server.creative_enabled())
+        with patch.object(server,'ai_json') as ai:
+            self.assertEqual(server.make_daily('tip'),server.fallback_content('tip'))
+        ai.assert_not_called()
 
 
 if __name__ == '__main__':
