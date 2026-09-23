@@ -33,6 +33,7 @@ echo "$DNS_IPS" | grep -Fxq "$EXPECTED_IP" || fail "DNS $DOMAIN указывае
 
 echo 'Проверки пройдены. Дальше будут созданы только новые файлы kino-group.'
 read -r -p 'Telegram ID старосты (цифры): ' ADMIN_IDS
+ADMIN_IDS=$(printf '%s' "$ADMIN_IDS" | tr -d '[:space:]')
 [[ "$ADMIN_IDS" =~ ^[0-9]+(,[0-9]+)*$ ]] || fail 'Неверный список ID.'
 read -r -s -p 'Токен нового бота от BotFather (не отображается): ' BOT_TOKEN; echo
 [[ "$BOT_TOKEN" =~ ^[0-9]+:[A-Za-z0-9_-]{20,}$ ]] || fail 'Формат токена неверный.'
