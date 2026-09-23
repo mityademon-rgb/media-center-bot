@@ -3,7 +3,7 @@ set -Eeuo pipefail
 DOMAIN='group.217-149-24-234.nip.io'
 IP='217.149.24.234'
 PORT=8087
-CONF='/etc/nginx/sites-available/kino-group.conf'
+CONF='/etc/nginx/conf.d/kino-group.conf'
 LINK='/etc/nginx/sites-enabled/kino-group.conf'
 ENVFILE='/etc/kino-group.env'
 WEBROOT='/var/www/kino-group-acme'
@@ -28,10 +28,11 @@ server {
     location / { return 404; }
 }
 EOF
-ln -s "$CONF" "$LINK"
-rollback(){ status=$?; if (( status != 0 )); then rm -f "$LINK" "$CONF"; nginx -t >/dev/null 2>&1 && systemctl reload nginx || true; echo 'Новый vhost убран; остальные сайты не изменены.' >&2; fi; }
+rollback(){ status=$?; if (( status != 0 )); then rm -f "$CONF"; nginx -t >/dev/null 2>&1 && systemctl reload nginx || true; echo 'Новый vhost убран; остальные сайты не изменены.' >&2; fi; }
 trap rollback EXIT
 nginx -t || fail 'Новый временный vhost не прошёл проверку.'
+NGINX_DUMP=$(nginx -T 2>/dev/null)
+[[ "$NGINX_DUMP" == *"server_name $DOMAIN;"* ]] || fail 'Nginx не включает файл /etc/nginx/conf.d/kino-group.conf в рабочую конфигурацию.'
 systemctl reload nginx
 PROBE="probe-$(date +%s)-$$"
 printf '%s\n' "$PROBE" > "$WEBROOT/.well-known/acme-challenge/$PROBE"
