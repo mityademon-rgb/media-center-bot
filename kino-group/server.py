@@ -1,5 +1,6 @@
-import cgi, hashlib, hmac, html, json, mimetypes, os, re, secrets, sqlite3, threading, time, urllib.parse, urllib.request
-from datetime import datetime
+import hashlib, hmac, html, json, mimetypes, os, re, secrets, sqlite3, threading, time, urllib.parse, urllib.request
+from email.parser import BytesParser
+from email.policy import default
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -161,13 +162,18 @@ class Handler(BaseHTTPRequestHandler):
     return self.json({'ok':True})
    if not self.admin():return self.fail('Только для администратора',403)
    if path=='/api/upload':
-    typ=self.headers.get('Content-Type',''); match=re.search(r'boundary=([^;]+)',typ)
-    if not match:return self.fail('Файл не получен')
-    form=cgi.FieldStorage(fp=self.rfile,headers=self.headers,environ={'REQUEST_METHOD':'POST','CONTENT_TYPE':typ,'CONTENT_LENGTH':self.headers.get('Content-Length','0')}); f=form['file'] if 'file' in form else None
-    if f is None or not f.filename:return self.fail('Выберите файл')
-    data=f.file.read(MAX_FILE+1)
+    typ=self.headers.get('Content-Type','')
+    if not typ.lower().startswith('multipart/form-data;'):return self.fail('Ожидается файл')
+    raw=self.body()
+    msg=BytesParser(policy=default).parsebytes(('Content-Type: '+typ+'\r\nMIME-Version: 1.0\r\n\r\n').encode()+raw)
+    if not msg.is_multipart():return self.fail('Неверный формат файла')
+    parts=[part for part in msg.iter_parts() if part.get_param('name',header='content-disposition')=='file']
+    if len(parts)!=1 or not parts[0].get_filename():return self.fail('Выберите файл')
+    name=Path(parts[0].get_filename()).name[:180]
+    data=parts[0].get_payload(decode=True)
+    if not isinstance(data,bytes):return self.fail('Неверный формат файла')
     if len(data)>MAX_FILE:return self.fail('Файл больше 20 МБ')
-    name=Path(f.filename).name[:180]; mime=mimetypes.guess_type(name)[0] or 'application/octet-stream'; storage=UP/secrets.token_hex(16);storage.write_bytes(data)
+    mime=mimetypes.guess_type(name)[0] or 'application/octet-stream'; storage=UP/secrets.token_hex(16);storage.write_bytes(data)
     with conn() as c:fid=c.execute('insert into files(storage,name,mime,size) values (?,?,?,?)',(str(storage),name,mime,len(data))).lastrowid
     return self.json({'id':fid,'name':name})
    p=json.loads(self.body()); table=path.removeprefix('/api/')
