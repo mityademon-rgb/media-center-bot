@@ -162,25 +162,30 @@ def prepare(admin, lab, theme, connect, send, base, api_key, model, params):
         game = generate(lab, theme, api_key, model, params)
         with connect() as c:
             qid = save_draft(c, lab, game)
-        send(admin, '🎬 <b>КВЕСТ #'+str(qid)+' / '+lab.upper()+'</b>\n<b>'+escape(game['title'])+
-             '</b>\n'+escape(game['hook'])+'\n\nПолный сценарий ниже. До утверждения дети его не увидят.')
-        for number, chapter in enumerate(game['chapters'], 1):
-            body = ('🎞 <b>СЕРИЯ '+str(number)+'/4: '+escape(chapter['title'])+'</b>\n'+
-                    escape(chapter['scene'])+'\n\n'+escape(chapter['question']))
-            for position, option in enumerate(chapter['choices'], 1):
-                body += ('\n\n<b>'+str(position)+'. '+escape(option['label'])+'</b> → '+
-                         escape(option['effect']))
-            body += '\n\nАльтернативная сцена: '+escape(chapter['alternate'])
-            send(admin, body)
-        endings = '\n\n'.join('<b>'+escape(key)+'</b>: '+escape(text)
-                              for key, text in game['endings'].items())
-        send(admin, '<b>ТРИ ФИНАЛА</b>\n\n'+endings+'\n\nЧерновик можно сыграть в приложении.',
-             [[{'text': '✅ Утвердить '+lab, 'callback_data': 'quest:approve:'+str(qid)},
-               {'text': '❌ Отклонить', 'callback_data': 'quest:reject:'+str(qid)}]])
+        deliver_preview(admin, qid, lab, game, send)
     except Exception as error:
         print('Quest generation:', str(error)[:180], flush=True)
         send(admin, 'Квест пока не собран: '+escape(str(error)[:180])+'. Ничего не опубликовано. '
              'Попроси Kimi попробовать другой сюжет: /quest '+lab+' тема.')
+
+
+def deliver_preview(admin, qid, lab, game, send):
+    escape = lambda text: html.escape(str(text), quote=False)
+    send(admin, '🎬 <b>КВЕСТ #'+str(qid)+' / '+lab.upper()+'</b>\n<b>'+escape(game['title'])+
+         '</b>\n'+escape(game['hook'])+'\n\nПолный сценарий ниже. До утверждения дети его не увидят.')
+    for number, chapter in enumerate(game['chapters'], 1):
+        body = ('🎞 <b>СЕРИЯ '+str(number)+'/4: '+escape(chapter['title'])+'</b>\n'+
+                escape(chapter['scene'])+'\n\n'+escape(chapter['question']))
+        for position, option in enumerate(chapter['choices'], 1):
+            body += ('\n\n<b>'+str(position)+'. '+escape(option['label'])+'</b> → '+
+                     escape(option['effect']))
+        body += '\n\nАльтернативная сцена: '+escape(chapter['alternate'])
+        send(admin, body)
+    endings = '\n\n'.join('<b>'+escape(key)+'</b>: '+escape(text)
+                          for key, text in game['endings'].items())
+    send(admin, '<b>ТРИ ФИНАЛА</b>\n\n'+endings+'\n\nЧерновик можно сыграть в приложении.',
+         [[{'text': '✅ Утвердить '+lab, 'callback_data': 'quest:approve:'+str(qid)},
+           {'text': '❌ Отклонить', 'callback_data': 'quest:reject:'+str(qid)}]])
 
 
 def review(c, admin, qid, decision, today, send, base):
