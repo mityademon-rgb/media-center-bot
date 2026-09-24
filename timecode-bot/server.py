@@ -60,6 +60,14 @@ MISSIONS = [
  ('Ракурс решает', 'Покажи один предмет с необычного ракурса. Пусть остальные угадают, что это. Пришли фото.', 'photo'),
  ('Сцена в трёх словах', 'Опиши момент сегодняшнего дня тремя словами. Больше нельзя: у нас короткий хронометраж.', 'text'),
 ]
+MISSION_FORMATS = (
+    ('photo', 'Найди интересную деталь вокруг себя и покажи её одним кадром.', 'Сними один кадр, в котором деталь меняет смысл всей сцены.'),
+    ('text', 'Придумай вопрос, на который нельзя ответить одним словом.', 'Придумай один вопрос, который раскроет героя без подсказки в ответе.'),
+    ('text', 'Выбери лучший из двух вариантов кадра и объясни выбор одной фразой.', 'Выбери монтажное решение из двух вариантов и объясни его одним предложением.'),
+    ('photo', 'Покажи действие одним кадром без лица человека.', 'Покажи действие через деталь, не снимая чужих лиц.'),
+    ('text', 'Придумай смешное название для обычного предмета в кадре.', 'Придумай заголовок, который превратит обычную сцену в историю.'),
+    ('text', 'Заметь необычный звук и назови его одной фразой.', 'Предложи, каким звуком открыть сцену, чтобы сразу возник вопрос.'),
+)
 
 def conn():
     DB.parent.mkdir(parents=True, exist_ok=True)
@@ -86,6 +94,9 @@ def init():
         create table if not exists question_receipts(admin_id integer not null,message_id integer not null,question_id integer not null,primary key(admin_id,message_id));
         create table if not exists daily_content(day text not null,kind text not null,title text not null,body text not null,mode text not null default 'text',source text not null default '',primary key(day,kind));
         ''')
+        columns={row['name'] for row in c.execute('pragma table_info(daily_content)')}
+        for name in ('body_kids','body_media'):
+            if name not in columns:c.execute('alter table daily_content add column '+name+" text not null default ''")
         if not GROUP:
             row=c.execute("select value from settings where key='group_chat'").fetchone()
             if row:GROUP=row['value']
@@ -199,8 +210,8 @@ def fallback_content(kind):
     if kind=='tip':
         title,body=TIPS[index%len(TIPS)]
         return {'title':title,'body':body,'mode':'text','source':''}
-    title,body,mode=MISSIONS[index%len(MISSIONS)]
-    return {'title':title,'body':body,'mode':mode,'source':''}
+    mode,kids,media=MISSION_FORMATS[index%len(MISSION_FORMATS)]
+    return {'title':'МИКРОЗАДАНИЕ / '+('КАДР' if mode=='photo' else 'РЕШЕНИЕ'),'body':kids,'body_kids':kids,'body_media':media,'mode':mode,'source':''}
 
 def creative_enabled():
     with conn() as c:
@@ -223,22 +234,23 @@ def make_daily(kind):
         if 3<=len(title)<=55 and 40<=len(body)<=320:return {'title':title,'body':body,'mode':'text','source':found['url']}
         return default
     previous=[]
-    with conn() as c:previous=[r['title'] for r in c.execute("select title from daily_content where kind='mission' order by day desc limit 10")]
-    drafted=ai_json('Ты игровой редактор медиацентра для детей и подростков. Придумай новую забавную задачу с телефоном на 1-3 минуты. Каждый день другой формат: фото предмета, наблюдение, один вопрос, короткий текст, решение в кадре. Не проси идти к незнакомцам, нарушать правила, фотографировать других без их согласия и загружать личные сведения. Доступны ответы только одним фото или коротким текстом. JSON {"title":"до 45 символов","body":"до 220 символов","mode":"photo или text"}.',json.dumps({'previous':previous,'day':today(),'fallback':default},ensure_ascii=False),260)
-    title=str((drafted or {}).get('title','')).strip();body=str((drafted or {}).get('body','')).strip();mode=str((drafted or {}).get('mode',''))
-    if 3<=len(title)<=55 and 25<=len(body)<=260 and mode in ('photo','text'):return {'title':title,'body':body,'mode':mode,'source':''}
+    with conn() as c:previous=[dict(r) for r in c.execute("select title,mode from daily_content where kind='mission' order by day desc limit 10")]
+    planned=MISSION_FORMATS[(now().date()-dt.date(2026,1,1)).days%len(MISSION_FORMATS)]
+    drafted=ai_json('Ты игровой редактор TIMECODE, лаборатории креативных медиа. Придумай ОДНО новое забавное задание для смартфона на 1–3 минуты, с двумя возрастными формулировками одной и той же идеи: Kids Lab 12–13 лет — проще и игровее; Media Lab 14–17 лет — чуть сложнее, с редакторским или операторским выбором. Ровно заданный формат ответа: photo — одно фото, text — одна короткая фраза. Не повторяй недавние идеи. Не проси идти к незнакомцам, загружать личные сведения, снимать людей без согласия или делать опасное. Никаких длинных объяснений. JSON {"title":"до 45 символов","kids":"до 180 символов","media":"до 180 символов","mode":"photo или text"}.',json.dumps({'previous':previous,'day':today(),'mode':planned[0],'direction_kids':planned[1],'direction_media':planned[2]},ensure_ascii=False),350)
+    title=str((drafted or {}).get('title','')).strip();kids=str((drafted or {}).get('kids','')).strip();media=str((drafted or {}).get('media','')).strip();mode=str((drafted or {}).get('mode',''))
+    if 3<=len(title)<=55 and 25<=len(kids)<=200 and 25<=len(media)<=200 and mode==planned[0]:return {'title':title,'body':kids,'body_kids':kids,'body_media':media,'mode':mode,'source':''}
     return default
 
 def daily_content(kind,generate=False):
     day=today()
-    with conn() as c:row=c.execute('select title,body,mode,source from daily_content where day=? and kind=?',(day,kind)).fetchone()
-    if row:return dict(row)
+    with conn() as c:row=c.execute('select title,body,body_kids,body_media,mode,source from daily_content where day=? and kind=?',(day,kind)).fetchone()
+    if row:return {k:row[k] for k in (('title','body','body_kids','body_media','mode','source') if kind=='mission' else ('title','body','mode','source'))}
     if not generate:return fallback_content(kind)
     value=make_daily(kind)
     with conn() as c:
-        c.execute('insert or ignore into daily_content(day,kind,title,body,mode,source) values(?,?,?,?,?,?)',(day,kind,value['title'],value['body'],value['mode'],value['source']))
-        row=c.execute('select title,body,mode,source from daily_content where day=? and kind=?',(day,kind)).fetchone()
-    return dict(row)
+        c.execute('insert or ignore into daily_content(day,kind,title,body,mode,source,body_kids,body_media) values(?,?,?,?,?,?,?,?)',(day,kind,value['title'],value['body'],value['mode'],value['source'],value.get('body_kids',''),value.get('body_media','')))
+        row=c.execute('select title,body,body_kids,body_media,mode,source from daily_content where day=? and kind=?',(day,kind)).fetchone()
+    return {k:row[k] for k in (('title','body','body_kids','body_media','mode','source') if kind=='mission' else ('title','body','mode','source'))}
 
 def digest(period):
     with conn() as c:
@@ -262,7 +274,8 @@ def tip():
 def mission():
     if not BOTNAME:return
     item=daily_content('mission',True)
-    send(GROUP,'🎬 <b>СТРАННОЕ ЗАДАНИЕ</b>\n\n<b>'+esc(item['title'])+'</b>\n'+esc(item['body']),[[{'text':'Ответить боту ↗','url':'https://t.me/'+BOTNAME+'?start=mission'}]])
+    kids=item['body_kids'] or item['body'];media=item['body_media'] or item['body']
+    send(GROUP,'🎬 <b>СТРАННОЕ ЗАДАНИЕ</b>\n\n<b>'+esc(item['title'])+'</b>\n\n<b>Kids Lab:</b> '+esc(kids)+'\n<b>Media Lab:</b> '+esc(media),[[{'text':'Ответить боту ↗','url':'https://t.me/'+BOTNAME+'?start=mission'}]])
 
 def weekly():
     weekstart=(now().date()-dt.timedelta(days=6)).isoformat()
@@ -611,7 +624,8 @@ class Handler(BaseHTTPRequestHandler):
                 progress=[dict(r) for r in c.execute('select * from progress where user_id=?',(u['id'],))]
                 latest=[dict(r) for r in c.execute('select day,period,choice,detail from answers where user_id=? order by id desc limit 8',(u['id'],))]
             tip_item=daily_content('tip');mission_item=daily_content('mission')
-            return self.out({'me':{'id':u['id'],'name':u['name'],'lab':u['lab'],'role':u['role'],'enabled':bool(u['enabled'])},'lessons':lessons,'changes':changes,'progress':progress,'latest':latest,'tip':[tip_item['title'],tip_item['body']],'mission':[mission_item['title'],mission_item['body'],mission_item['mode']],'date':today(),'bot':BOTNAME})
+            personal_mission=(mission_item['body_media'] if u['lab']=='media' else mission_item['body_kids']) or mission_item['body']
+            return self.out({'me':{'id':u['id'],'name':u['name'],'lab':u['lab'],'role':u['role'],'enabled':bool(u['enabled'])},'lessons':lessons,'changes':changes,'progress':progress,'latest':latest,'tip':[tip_item['title'],tip_item['body']],'mission':[mission_item['title'],personal_mission,mission_item['mode']],'date':today(),'bot':BOTNAME})
         if path not in ('/','/app.js','/style.css'):return self.out({'error':'Не найдено'},404)
         file=ROOT/'static'/('index.html' if path=='/' else path[1:]);blob=file.read_bytes()
         self.send_response(200);self.send_header('Content-Type',{'html':'text/html','js':'text/javascript','css':'text/css'}[file.suffix[1:]]+'; charset=utf-8');self.send_header('Content-Length',str(len(blob)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(blob)
