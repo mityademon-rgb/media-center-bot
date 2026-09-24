@@ -15,6 +15,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zoneinfo import ZoneInfo
+import quest_engine as quests
 
 ROOT = Path(__file__).resolve().parent
 TOKEN = os.getenv('BOT_TOKEN', '')
@@ -94,6 +95,7 @@ def init():
         create table if not exists question_receipts(admin_id integer not null,message_id integer not null,question_id integer not null,primary key(admin_id,message_id));
         create table if not exists daily_content(day text not null,kind text not null,title text not null,body text not null,mode text not null default 'text',source text not null default '',primary key(day,kind));
         ''')
+        quests.install(c)
         columns={row['name'] for row in c.execute('pragma table_info(daily_content)')}
         for name in ('body_kids','body_media'):
             if name not in columns:c.execute('alter table daily_content add column '+name+" text not null default ''")
@@ -272,6 +274,17 @@ def tip():
     source='\n<a href="'+html.escape(item['source'],quote=True)+'">Откуда идея ↗</a>' if item['source'] else ''
     send(GROUP,'⏱ <b>15:00 / ПРИЁМ ДНЯ</b>\n\n<b>'+esc(item['title'])+'</b>\n'+esc(item['body'])+source,[[{'text':'Открыть лайфхак в TIMECODE ↗','url':BASE+'/?view=tip'}]])
 
+def quest_next_episodes():
+    with conn() as c:
+        rows=c.execute("select id,lab,content,published_day from quest_drafts where status='published' and published_day between ? and ?",((now().date()-dt.timedelta(days=3)).isoformat(),today())).fetchall()
+        chats={r['key']:r['value'] for r in c.execute("select key,value from settings where key like 'quest_chat_%'")}
+    for row in rows:
+        chapter=(now().date()-dt.date.fromisoformat(row['published_day'])).days+1
+        if not 2<=chapter<=4 or not chats.get('quest_chat_'+row['lab']):continue
+        story=json.loads(row['content'])
+        if claim('quest:'+str(row['id'])+':'+str(chapter),today()):
+            send(chats['quest_chat_'+row['lab']],'🎞 <b>'+esc(story['title'])+'</b>\nОткрыта серия '+str(chapter)+'/4: '+esc(story['chapters'][chapter-1]['title'])+'. То, что ты сделал раньше, изменит следующую сцену.',[[{'text':'Продолжить ↗','url':BASE+'/?view=quests&id='+str(row['id'])}]])
+
 def mission():
     if not BOTNAME:return
     item=daily_content('mission',True)
@@ -337,6 +350,7 @@ def scheduler():
             if clock=='09:00':run_slot('morning',morning)
             if clock=='10:00':run_slot('digest-am',lambda:digest('am'))
             if clock=='15:00':run_slot('tip',tip)
+            if clock=='16:00':quest_next_episodes()
             if clock=='19:00':run_slot('evening',evening)
             if clock=='20:30':run_slot('digest-pm',lambda:digest('pm'))
             if t.weekday() in (0,2,4) and clock=='16:00':run_slot('mission',mission)
@@ -358,6 +372,12 @@ def bot_message(msg):
     global GROUP
     chat=msg.get('chat',{}); uid=msg.get('from',{}).get('id');text=msg.get('text','').strip()
     if chat.get('type') in ('group','supergroup') and uid in ADMINS and text.startswith('/connect'):
+        parts=text.split(maxsplit=1)
+        target=parts[1].strip().lower() if len(parts)==2 else ''
+        if target in ('kids','media'):
+            with conn() as c:c.execute("insert into settings(key,value) values(?,?) on conflict(key) do update set value=excluded.value",('quest_chat_'+target,str(chat['id'])))
+            send(str(chat['id']),'🎬 <b>'+('Kids Lab' if target=='kids' else 'Media Lab')+'</b>: этот чат подключён для утверждённых квестов.')
+            return
         GROUP=str(chat['id'])
         with conn() as c:c.execute("insert into settings(key,value) values('group_chat',?) on conflict(key) do update set value=excluded.value",(GROUP,))
         send(GROUP,'🎬 <b>TIMECODE подключён к этому чату.</b> Утренняя сводка выйдет после следующей переклички.')
@@ -381,6 +401,14 @@ def bot_message(msg):
         keys=[[{'text':'Открыть TIMECODE ↗','web_app':{'url':BASE}}]] if BASE else []
         if uid in ADMINS:keys += [[{'text':'📣 Написать всем','callback_data':'admin:publish'},{'text':'❓ Вопросы','callback_data':'admin:questions'}]]
         send(uid,'<b>TIMECODE на связи.</b>\nУтром и вечером здесь перекличка. Игры, уроки и расписание — в приложении.',keys)
+        return
+    if uid in ADMINS and text.startswith('/quest '):
+        parts=text.split(' ',2)
+        if len(parts)!=3 or parts[1] not in ('kids','media') or not parts[2].strip():
+            send(uid,'Формат: /quest kids Пропавший кадр или /quest media Пропавший кадр.')
+            return
+        send(uid,'🎬 Передал идею Kimi. Он соберёт полный сценарий, а я пришлю его сюда на утверждение.')
+        threading.Thread(target=quests.prepare,args=(uid,parts[1],parts[2],conn,send,BASE,AI_KEY,AI_MODEL,kimi_params()),daemon=True).start()
         return
     if text.startswith('/login'):
         code=f'{secrets.randbelow(1000000):06d}'
@@ -501,6 +529,12 @@ def callback(q):
     uid=q.get('from',{}).get('id');data=q.get('data','');msg=q.get('message',{});cid=msg.get('chat',{}).get('id')
     if not uid or not allowed(uid):return
     api('answerCallbackQuery',{'callback_query_id':q['id']})
+    if uid in ADMINS and data.startswith('quest:'):
+        try:_,action,raw_id=data.split(':',2);qid=int(raw_id)
+        except (ValueError,TypeError):return
+        with conn() as c:result=quests.review(c,uid,qid,action,today(),send,BASE)
+        send(uid,result)
+        return
     if uid in ADMINS and data=='admin:publish':
         with conn() as c:c.execute("update users set stage='admin_publish' where id=?",(uid,))
         send(uid,'📣 Отправь сообщение, фото, видео или документ. Опубликую в общем чате. /stop — отменить.')
@@ -630,7 +664,8 @@ class Handler(BaseHTTPRequestHandler):
             tip_item=daily_content('tip') if current.strftime('%H:%M')>='15:00' else None
             mission_item=daily_content('mission') if current.weekday() in (0,2,4) and current.strftime('%H:%M')>='16:00' else None
             personal_mission=((mission_item['body_media'] if u['lab']=='media' else mission_item['body_kids']) or mission_item['body']) if mission_item else ''
-            return self.out({'me':{'id':u['id'],'name':u['name'],'lab':u['lab'],'role':u['role'],'enabled':bool(u['enabled'])},'lessons':lessons,'changes':changes,'progress':progress,'latest':latest,'tip':[tip_item['title'],tip_item['body']] if tip_item else None,'mission':[mission_item['title'],personal_mission,mission_item['mode']] if mission_item else None,'date':today(),'bot':BOTNAME})
+            with conn() as c:campaigns=quests.state(c,u['id'],u['lab'],u['role']=='admin',today())
+            return self.out({'quests':campaigns,'me':{'id':u['id'],'name':u['name'],'lab':u['lab'],'role':u['role'],'enabled':bool(u['enabled'])},'lessons':lessons,'changes':changes,'progress':progress,'latest':latest,'tip':[tip_item['title'],tip_item['body']] if tip_item else None,'mission':[mission_item['title'],personal_mission,mission_item['mode']] if mission_item else None,'date':today(),'bot':BOTNAME})
         if path not in ('/','/app.js','/style.css'):return self.out({'error':'Не найдено'},404)
         file=ROOT/'static'/('index.html' if path=='/' else path[1:]);blob=file.read_bytes()
         self.send_response(200);self.send_header('Content-Type',{'html':'text/html','js':'text/javascript','css':'text/css'}[file.suffix[1:]]+'; charset=utf-8');self.send_header('Content-Length',str(len(blob)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(blob)
@@ -653,6 +688,12 @@ class Handler(BaseHTTPRequestHandler):
             if lab not in ('kids','media'):return self.out({'error':'Выберите лабораторию'},400)
             with conn() as c:c.execute('update users set lab=?,enabled=? where id=?',(lab,int(bool(p.get('enabled',True))),u['id']))
             return self.out({'ok':True})
+        if path=='/api/quest/choose':
+            try:
+                qid=int(p['id']);choice=p['choice']
+                with conn() as c:effect=quests.choose(c,qid,u['id'],u['lab'],choice,today())
+                return self.out({'ok':True,'effect':effect})
+            except (KeyError,ValueError,OverflowError) as error:return self.out({'error':str(error)},400)
         if path=='/api/game':
             if p.get('game') not in ('cinema','shot','interview','differences','framing','moon','words'):return self.out({'error':'Неизвестная игра'},400)
             answer=str(p.get('result',''))[:120]
