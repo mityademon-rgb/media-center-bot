@@ -626,9 +626,11 @@ class Handler(BaseHTTPRequestHandler):
                 changes=[dict(r) for r in c.execute('select * from overrides where day>=? order by day,start',(today(),))]
                 progress=[dict(r) for r in c.execute('select * from progress where user_id=?',(u['id'],))]
                 latest=[dict(r) for r in c.execute('select day,period,choice,detail from answers where user_id=? order by id desc limit 8',(u['id'],))]
-            tip_item=daily_content('tip');mission_item=daily_content('mission')
-            personal_mission=(mission_item['body_media'] if u['lab']=='media' else mission_item['body_kids']) or mission_item['body']
-            return self.out({'me':{'id':u['id'],'name':u['name'],'lab':u['lab'],'role':u['role'],'enabled':bool(u['enabled'])},'lessons':lessons,'changes':changes,'progress':progress,'latest':latest,'tip':[tip_item['title'],tip_item['body']],'mission':[mission_item['title'],personal_mission,mission_item['mode']],'date':today(),'bot':BOTNAME})
+            current=now()
+            tip_item=daily_content('tip') if current.strftime('%H:%M')>='15:00' else None
+            mission_item=daily_content('mission') if current.weekday() in (0,2,4) and current.strftime('%H:%M')>='16:00' else None
+            personal_mission=((mission_item['body_media'] if u['lab']=='media' else mission_item['body_kids']) or mission_item['body']) if mission_item else ''
+            return self.out({'me':{'id':u['id'],'name':u['name'],'lab':u['lab'],'role':u['role'],'enabled':bool(u['enabled'])},'lessons':lessons,'changes':changes,'progress':progress,'latest':latest,'tip':[tip_item['title'],tip_item['body']] if tip_item else None,'mission':[mission_item['title'],personal_mission,mission_item['mode']] if mission_item else None,'date':today(),'bot':BOTNAME})
         if path not in ('/','/app.js','/style.css'):return self.out({'error':'Не найдено'},404)
         file=ROOT/'static'/('index.html' if path=='/' else path[1:]);blob=file.read_bytes()
         self.send_response(200);self.send_header('Content-Type',{'html':'text/html','js':'text/javascript','css':'text/css'}[file.suffix[1:]]+'; charset=utf-8');self.send_header('Content-Length',str(len(blob)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(blob)
