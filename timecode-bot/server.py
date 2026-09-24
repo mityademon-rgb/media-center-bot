@@ -654,7 +654,7 @@ class Handler(BaseHTTPRequestHandler):
             with conn() as c:c.execute('update users set lab=?,enabled=? where id=?',(lab,int(bool(p.get('enabled',True))),u['id']))
             return self.out({'ok':True})
         if path=='/api/game':
-            if p.get('game') not in ('cinema','shot','interview','differences'):return self.out({'error':'Неизвестная игра'},400)
+            if p.get('game') not in ('cinema','shot','interview','differences','framing','moon','words'):return self.out({'error':'Неизвестная игра'},400)
             answer=str(p.get('result',''))[:120]
             with conn() as c:c.execute('insert into progress values(?,?,?,?) on conflict(user_id,game) do update set result=excluded.result,day=excluded.day',(u['id'],p['game'],answer,today()))
             return self.out({'ok':True})
