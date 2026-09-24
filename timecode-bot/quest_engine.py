@@ -1,5 +1,6 @@
 """Reviewed, data-only TIMECODE quest campaigns. No executable AI output."""
 import datetime as dt
+import html
 import json
 import sqlite3
 import time
@@ -123,7 +124,9 @@ def state(c, uid, lab, is_admin, today):
                        'title': game['title'], 'hook': game['hook'], 'chapter': len(chosen),
                        'unlocked': unlocked, 'last_effect': last, 'ending': ending,
                        'scene': (game['chapters'][chapter_index] if len(chosen) < 4 else None),
-                       'alternative': scores['evidence'] >= 1, 'preview': row['status'] == 'draft'})
+                       'alternative': scores['evidence'] >= 1, 'preview': row['status'] == 'draft',
+                       'preview_chapters': game['chapters'] if row['status'] == 'draft' else None,
+                       'preview_endings': game['endings'] if row['status'] == 'draft' else None})
     return result
 
 
@@ -147,3 +150,59 @@ def choose(c, quest_id, uid, lab, index, today):
               'on conflict(quest_id,user_id) do update set choices=excluded.choices,updated=excluded.updated',
               (quest_id, uid, json.dumps(chosen), int(time.time())))
     return game['chapters'][len(chosen) - 1]['choices'][index]['effect']
+
+
+def prepare(admin, lab, theme, connect, send, base, api_key, model, params):
+    escape = lambda text: html.escape(str(text), quote=False)
+    try:
+        game = generate(lab, theme, api_key, model, params)
+        with connect() as c:
+            qid = save_draft(c, lab, game)
+        send(admin, '🎬 <b>КВЕСТ #'+str(qid)+' / '+lab.upper()+'</b>\n<b>'+escape(game['title'])+
+             '</b>\n'+escape(game['hook'])+'\n\nПолный сценарий ниже. До утверждения дети его не увидят.')
+        for number, chapter in enumerate(game['chapters'], 1):
+            body = ('🎞 <b>СЕРИЯ '+str(number)+'/4: '+escape(chapter['title'])+'</b>\n'+
+                    escape(chapter['scene'])+'\n\n'+escape(chapter['question']))
+            for position, option in enumerate(chapter['choices'], 1):
+                body += ('\n\n<b>'+str(position)+'. '+escape(option['label'])+'</b> → '+
+                         escape(option['effect']))
+            body += '\n\nАльтернативная сцена: '+escape(chapter['alternate'])
+            send(admin, body)
+        endings = '\n\n'.join('<b>'+escape(key)+'</b>: '+escape(text)
+                              for key, text in game['endings'].items())
+        send(admin, '<b>ТРИ ФИНАЛА</b>\n\n'+endings+'\n\nЧерновик можно сыграть в приложении.',
+             [[{'text': '✅ Утвердить '+lab, 'callback_data': 'quest:approve:'+str(qid)},
+               {'text': '❌ Отклонить', 'callback_data': 'quest:reject:'+str(qid)}]])
+    except Exception as error:
+        print('Quest generation:', str(error)[:180], flush=True)
+        send(admin, 'Квест пока не собран: '+escape(str(error)[:180])+'. Ничего не опубликовано. '
+             'Попроси Kimi попробовать другой сюжет: /quest '+lab+' тема.')
+
+
+def review(c, admin, qid, decision, today, send, base):
+    row = c.execute('select * from quest_drafts where id=?', (qid,)).fetchone()
+    if not row or row['status'] != 'draft':
+        return 'Этот черновик уже рассмотрен или не найден.'
+    if decision == 'reject':
+        c.execute("update quest_drafts set status='rejected',reviewer=? where id=? and status='draft'",
+                  (admin, qid))
+        return 'Черновик отклонён. Дети его не увидят.'
+    if decision != 'approve':
+        return 'Неизвестное действие.'
+    group = c.execute('select value from settings where key=?',
+                      ('quest_chat_'+row['lab'],)).fetchone()
+    if not group:
+        return ('Сначала добавь бота в чат '+row['lab']+' и напиши там /connect '+
+                row['lab']+'. До этого квест остаётся черновиком.')
+    story = json.loads(row['content'])
+    lab = row['lab']
+    message = ('🎬 <b>КВЕСТ / '+lab.upper()+'</b>\n\n<b>'+html.escape(story['title'])+
+               '</b>\n'+html.escape(story['hook'])+'\n\nПервая серия доступна. '+
+               'Продолжение появится завтра.')
+    sent = send(group['value'], message,
+                [[{'text': 'Играть ↗', 'url': base+'/?view=quests&id='+str(qid)}]])
+    if not sent.get('ok'):
+        return 'Telegram не принял публикацию в чат. Проверь право бота писать туда; черновик сохранён.'
+    c.execute("update quest_drafts set status='published',published_day=?,reviewer=? "
+              "where id=? and status='draft'", (today, admin, qid))
+    return 'Квест опубликован для '+lab+'.'
