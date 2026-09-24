@@ -765,12 +765,13 @@ def photos_digest():
         if comment and not item['comment']:
             with conn() as c:c.execute("update missions set comment=? where user_id=? and day=? and kind='instant'",(comment,item['user_id'],today()))
         pictures.append({'photo':item['photo'],'name':item['name'],'comment':comment})
-        if len(pictures)>=10:break
-    if len(pictures)>=2:
-        media=[{'type':'photo','media':r['photo'],'caption':('📸 '+r['name']+'\n'+r['comment'] if r['comment'] else '📸 '+r['name'])[:850]} for r in pictures]
-        api('sendMediaGroup',{'chat_id':GROUP,'media':media})
-    elif pictures:
-        r=pictures[0];api('sendPhoto',{'chat_id':GROUP,'photo':r['photo'],'caption':'📸 '+r['name']+('\n'+r['comment'] if r['comment'] else '')})
+    for start in range(0,len(pictures),10):
+        batch=pictures[start:start+10]
+        if len(batch)>=2:
+            media=[{'type':'photo','media':r['photo'],'caption':('📸 '+r['name']+'\n'+r['comment'] if r['comment'] else '📸 '+r['name'])[:850]} for r in batch]
+            api('sendMediaGroup',{'chat_id':GROUP,'media':media})
+        else:
+            r=batch[0];api('sendPhoto',{'chat_id':GROUP,'photo':r['photo'],'caption':'📸 '+r['name']+('\n'+r['comment'] if r['comment'] else '')})
 
 def polling():
     global BOTNAME
