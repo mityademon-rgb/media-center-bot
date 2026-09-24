@@ -3,8 +3,8 @@ import datetime as dt
 import html
 import json
 import sqlite3
+import subprocess
 import time
-import urllib.request
 
 
 def install(c):
@@ -85,11 +85,15 @@ def generate(lab, theme, api_key, model, params):
     payload = {'model': model, 'response_format': {'type': 'json_object'},
                'max_tokens': 5000, 'messages': [{'role': 'system', 'content': system},
                                                 {'role': 'user', 'content': prompt}], **params}
-    req = urllib.request.Request('https://api.moonshot.ai/v1/chat/completions',
-                                 json.dumps(payload, ensure_ascii=False).encode(),
-                                 {'Authorization': 'Bearer ' + api_key, 'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=95) as response:
-        result = json.load(response)
+    response = subprocess.run(
+        ['curl', '-4', '-fsS', '--connect-timeout', '10', '--max-time', '105',
+         '-H', 'Content-Type: application/json', '-H', 'Authorization: Bearer ' + api_key,
+         '-d', '@-', 'https://api.moonshot.ai/v1/chat/completions'],
+        input=json.dumps(payload, ensure_ascii=False), text=True, capture_output=True,
+        timeout=110)
+    if response.returncode:
+        raise ValueError('Kimi не ответил (код соединения '+str(response.returncode)+')')
+    result = json.loads(response.stdout)
     return verify(json.loads(result['choices'][0]['message']['content']), lab)
 
 
