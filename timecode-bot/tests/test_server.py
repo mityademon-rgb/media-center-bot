@@ -90,6 +90,32 @@ class BotTests(unittest.TestCase):
             self.assertEqual(server.daily_content('tip',True),result)
         make.assert_called_once()
 
+    def test_mission_uses_two_age_versions_and_rotates_response_mode(self):
+        server.AI_KEY='testing-key'
+        try:
+            with patch.object(server,'creative_enabled',return_value=True),patch.object(server,'ai_json',return_value={'title':'Одна деталь — история','kids':'Найди интересный предмет рядом и покажи его одним кадром.','media':'Выбери деталь, которая меняет смысл сцены, и покажи её одним кадром.','mode':server.fallback_content('mission')['mode']}) as ai:
+                item=server.daily_content('mission',True)
+            self.assertNotEqual(item['body_kids'],item['body_media'])
+            self.assertEqual(item['mode'],server.fallback_content('mission')['mode'])
+            self.assertIn('direction_kids',ai.call_args.args[1])
+            with patch.object(server,'send') as sent:
+                server.BOTNAME='timecode_test_bot'
+                server.mission()
+            self.assertIn('Kids Lab:',sent.call_args.args[1])
+            self.assertIn('Media Lab:',sent.call_args.args[1])
+        finally:
+            server.AI_KEY=''
+            server.BOTNAME=''
+
+    def test_existing_database_migrates_mission_columns(self):
+        with server.conn() as c:
+            c.execute('alter table daily_content drop column body_kids')
+            c.execute('alter table daily_content drop column body_media')
+        server.init()
+        with server.conn() as c:
+            cols={row['name'] for row in c.execute('pragma table_info(daily_content)')}
+        self.assertTrue({'body_kids','body_media'} <= cols)
+
     def test_ai_searches_source_and_generates_new_tip(self):
         server.AI_KEY='testing-key'
         with patch.object(server,'creative_enabled',return_value=True), patch.object(server,'industry_search',return_value={'title':'Camera angle','snippet':'A camera angle refers to the placement of a film camera in relation to the subject.','url':'https://www.studiobinder.com/blog/camera-angle/'}) as lookup,patch.object(server,'ai_json',side_effect=[{'query':'camera angle cinematography'},{'title':'Выбери ракурс','body':'Ракурс камеры меняет точку зрения на героя. Выбери его прежде, чем нажать запись.'}]) as model:
