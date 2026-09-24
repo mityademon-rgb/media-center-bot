@@ -754,7 +754,7 @@ class Handler(BaseHTTPRequestHandler):
             personal_mission=((mission_item['body_media'] if u['lab']=='media' else mission_item['body_kids']) or mission_item['body']) if mission_item else ''
             with conn() as c:campaigns=quests.state(c,u['id'],u['lab'],u['role']=='admin',today())
             return self.out({'quests':campaigns,'me':{'id':u['id'],'name':u['name'],'lab':u['lab'],'role':u['role'],'enabled':bool(u['enabled'])},'lessons':lessons,'changes':changes,'progress':progress,'latest':latest,'tip':[tip_item['title'],tip_item['body']] if tip_item else None,'mission':[mission_item['title'],personal_mission,mission_item['mode']] if mission_item else None,'date':today(),'bot':BOTNAME})
-        if path not in ('/','/app.js','/style.css','/framequest.js','/framequest.css','/nightshift.js','/nightshift.css'):return self.out({'error':'Не найдено'},404)
+        if path not in ('/','/app.js','/style.css','/framequest.js','/framequest.css','/nightshift.js','/nightshift.css','/terms-memory.js','/terms-memory.css'):return self.out({'error':'Не найдено'},404)
         file=ROOT/'static'/('index.html' if path=='/' else path[1:]);blob=file.read_bytes()
         self.send_response(200);self.send_header('Content-Type',{'html':'text/html','js':'text/javascript','css':'text/css'}[file.suffix[1:]]+'; charset=utf-8');self.send_header('Content-Length',str(len(blob)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(blob)
     def do_POST(self):
