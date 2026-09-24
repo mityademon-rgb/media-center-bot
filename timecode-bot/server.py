@@ -417,12 +417,7 @@ def bot_message(msg):
         send(uid,'<b>TIMECODE на связи.</b>\nУтром и вечером здесь перекличка. Игры, уроки и расписание — в приложении.',keys)
         return
     if uid in ADMINS and text.startswith('/quest '):
-        parts=text.split(' ',2)
-        if len(parts)!=3 or parts[1] not in ('kids','media') or not parts[2].strip():
-            send(uid,'Формат: /quest kids Пропавший кадр или /quest media Пропавший кадр.')
-            return
-        send(uid,'🎬 Передал идею Kimi. Он соберёт полный сценарий, а я пришлю его сюда на утверждение.')
-        threading.Thread(target=quests.prepare,args=(uid,parts[1],parts[2],conn,send,BASE,AI_KEY,AI_MODEL,kimi_params()),daemon=True).start()
+        send(uid,'Выпуск текстовых квестов остановлен. Готовим визуальную игру: сцены, действия, анимация и разветвления. Черновики не публикуются.')
         return
     if text.startswith('/login'):
         code=f'{secrets.randbelow(1000000):06d}'
