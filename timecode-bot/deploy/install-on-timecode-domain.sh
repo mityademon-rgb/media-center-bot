@@ -24,7 +24,7 @@ rollback() {
       if nginx -t; then systemctl reload nginx || true; fi
     fi
     if (( started_service )); then systemctl stop timecode-bot.service || true; fi
-    echo "Установка прервана. Исходный Nginx восстановлен; файлы проекта и закрытые ключи сохранены для диагностики." >&2
+    echo "Установка прервана. Конфигурация действующих сайтов не изменена." >&2
   fi
   exit "$code"
 }
@@ -43,6 +43,7 @@ python3 -c 'import sys; assert sys.version_info >= (3,12)' || fail 'Нужен P
 
 read -r -p 'Telegram ID преподавателя [7103097249]: ' admin_id
 admin_id=${admin_id:-7103097249}
+admin_id=$(printf '%s' "$admin_id" | tr -d '[:space:]')
 [[ $admin_id =~ ^[0-9]{6,20}$ ]] || fail 'Telegram ID должен состоять из цифр.'
 read -r -s -p 'Токен НОВОГО бота Telegram (не показывается): ' bot_token
 echo
