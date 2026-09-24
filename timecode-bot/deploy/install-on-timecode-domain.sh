@@ -41,10 +41,8 @@ nginx -t
 command -v git >/dev/null && command -v python3 >/dev/null && command -v curl >/dev/null || fail 'Нужны git, python3, curl.'
 python3 -c 'import sys; assert sys.version_info >= (3,12)' || fail 'Нужен Python 3.12+.'
 
-read -r -p 'Telegram ID преподавателя [7103097249]: ' admin_id
-admin_id=${admin_id:-7103097249}
-admin_id=$(printf '%s' "$admin_id" | tr -d '[:space:]')
-[[ $admin_id =~ ^[0-9]{6,20}$ ]] || fail 'Telegram ID должен состоять из цифр.'
+admin_id=397724997
+echo "Telegram ID преподавателя: $admin_id"
 read -r -s -p 'Токен НОВОГО бота Telegram (не показывается): ' bot_token
 echo
 read -r -s -p 'API-ключ Kimi (не показывается): ' kimi_key
