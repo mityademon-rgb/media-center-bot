@@ -53,8 +53,11 @@ echo
 # Validation is read-only; errors do not print secrets.
 BOT_TOKEN="$bot_token" python3 - <<'PY' || fail 'BotFather-токен не прошёл проверку getMe.'
 import json,os,urllib.request
-req=urllib.request.Request('https://api.telegram.org/bot'+os.environ['BOT_TOKEN']+'/getMe')
-with urllib.request.urlopen(req,timeout=15) as r: data=json.load(r)
+try:
+    req=urllib.request.Request('https://api.telegram.org/bot'+os.environ['BOT_TOKEN']+'/getMe')
+    with urllib.request.urlopen(req,timeout=15) as r: data=json.load(r)
+except Exception:
+    raise SystemExit(1)
 if not data.get('ok') or not data.get('result',{}).get('username'):raise SystemExit(1)
 print('Telegram-бот подтверждён: @'+data['result']['username'])
 PY
