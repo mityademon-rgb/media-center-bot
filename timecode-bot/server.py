@@ -8,6 +8,7 @@ import json
 import os
 import secrets
 import sqlite3
+import subprocess
 import threading
 import time
 import urllib.parse
@@ -105,13 +106,20 @@ def init():
 
 def api(method, data=None):
     if not TOKEN: return {}
-    body = json.dumps(data or {}, ensure_ascii=False).encode()
-    req = urllib.request.Request('https://api.telegram.org/bot'+TOKEN+'/'+method, body, {'Content-Type':'application/json'})
     try:
-        with urllib.request.urlopen(req, timeout=30) as r: return json.load(r)
-    except Exception as e:
-        print('Telegram:', method, str(e)[:180], flush=True)
+        timeout=35 if method=='getUpdates' else 18
+        response=subprocess.run(['curl','-4','-fsS','--connect-timeout','8',
+                                 '--max-time',str(timeout),'-H','Content-Type: application/json',
+                                 '--data-binary','@-',
+                                 'https://api.telegram.org/bot'+TOKEN+'/'+method],
+                                input=json.dumps(data or {},ensure_ascii=False),text=True,
+                                capture_output=True,timeout=timeout+4)
+        if response.returncode==0:return json.loads(response.stdout)
+        print('Telegram:',method,'transport code',response.returncode,flush=True)
+    except Exception as error:
+        print('Telegram:',method,'request failed',type(error).__name__,flush=True)
         return {}
+    return {}
 
 def send(chat, text, keyboard=None):
     payload = {'chat_id':chat, 'text':text, 'parse_mode':'HTML', 'disable_web_page_preview':True}
@@ -163,15 +171,23 @@ def esc(value): return html.escape(str(value), quote=False)
 def kimi_params():
     return {'thinking':{'type':'disabled'}} if AI_MODEL=='kimi-k2.6' else {'reasoning_effort':'low'} if AI_MODEL=='kimi-k3' else {}
 
+def kimi_request(path,payload,timeout=24):
+    response=subprocess.run(['curl','-4','-fsS','--connect-timeout','8',
+                             '--max-time',str(timeout),'-H','Content-Type: application/json',
+                             '-H','Authorization: Bearer '+AI_KEY,'--data-binary','@-',
+                             AI_API+path],input=json.dumps(payload,ensure_ascii=False),
+                            text=True,capture_output=True,timeout=timeout+4)
+    if response.returncode:raise ValueError('Kimi transport code '+str(response.returncode))
+    return json.loads(response.stdout)
+
 def ai_digest(kind, facts):
     if not AI_KEY: return None
     prompt = ('Напиши по-русски короткую смешную сводку TIMECODE для школьного медиацентра. '
               'Используй только перечисленные факты, не добавляй людей, обстоятельства или оценки здоровья и учёбы. '
               'Не высмеивай участника. Остроумно, тепло, максимум 650 символов. '
               'Верни только JSON вида {"text":"..."}. Тема: '+kind+'; факты: '+json.dumps(facts,ensure_ascii=False))
-    req = urllib.request.Request(AI_API+'/chat/completions', json.dumps({'model':AI_MODEL,'response_format':{'type':'json_object'},'max_tokens':350,'messages':[{'role':'user','content':prompt}],**kimi_params()}).encode(), {'Authorization':'Bearer '+AI_KEY,'Content-Type':'application/json'})
     try:
-        with urllib.request.urlopen(req,timeout=18) as r: data=json.load(r)
+        data=kimi_request('/chat/completions',{'model':AI_MODEL,'response_format':{'type':'json_object'},'max_tokens':350,'messages':[{'role':'user','content':prompt}],**kimi_params()})
         s=json.loads(data['choices'][0]['message']['content']).get('text','').strip()
         return s[:850] or None
     except Exception as e:
@@ -180,9 +196,8 @@ def ai_digest(kind, facts):
 def ai_json(system,request,max_tokens=250):
     if not AI_KEY:return None
     data={'model':AI_MODEL,'response_format':{'type':'json_object'},'max_tokens':max_tokens,'messages':[{'role':'system','content':system+' Ответ только JSON.'},{'role':'user','content':request}],**kimi_params()}
-    req=urllib.request.Request(AI_API+'/chat/completions',json.dumps(data,ensure_ascii=False).encode(),{'Authorization':'Bearer '+AI_KEY,'Content-Type':'application/json'})
     try:
-        with urllib.request.urlopen(req,timeout=18) as response:result=json.load(response)
+        result=kimi_request('/chat/completions',data)
         obj=json.loads(result['choices'][0]['message']['content'])
         return obj if isinstance(obj,dict) else None
     except Exception as e:print('AI research:',str(e)[:160],flush=True);return None
@@ -191,9 +206,8 @@ def industry_search(query,sites):
     """Kimi Search Pro returns passages and URLs from selected film-industry sites."""
     if not AI_KEY:return None
     payload={'text_query':query[:140],'limit':5,'timeout_seconds':18,'sites':list(sites)[:5]}
-    req=urllib.request.Request(AI_API+'/tools/search_pro',json.dumps(payload,ensure_ascii=False).encode(),{'Authorization':'Bearer '+AI_KEY,'Content-Type':'application/json'})
     try:
-        with urllib.request.urlopen(req,timeout=22) as response:results=json.load(response).get('search_results',[])
+        results=kimi_request('/tools/search_pro',payload,timeout=28).get('search_results',[])
         for page in results:
             url=str(page.get('url',''))
             parsed=urllib.parse.urlsplit(url)
