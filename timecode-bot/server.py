@@ -102,6 +102,8 @@ def init():
         columns={row['name'] for row in c.execute('pragma table_info(daily_content)')}
         for name in ('body_kids','body_media'):
             if name not in columns:c.execute('alter table daily_content add column '+name+" text not null default ''")
+        if 'photo' not in {row['name'] for row in c.execute('pragma table_info(evening_checkins)')}:
+            c.execute("alter table evening_checkins add column photo text not null default ''")
         if not GROUP:
             row=c.execute("select value from settings where key='group_chat'").fetchone()
             if row:GROUP=row['value']
@@ -291,7 +293,7 @@ def digest(period):
 
 def evening_digest():
     with conn() as c:
-        rows=c.execute("select u.name,u.lab,e.mood,e.highlight,e.satisfied from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.visible=1 and e.step='done' order by u.name",(today(),)).fetchall()
+        rows=c.execute("select u.name,u.lab,e.mood,e.highlight,e.satisfied,e.photo from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.visible=1 and e.step='done' order by u.name",(today(),)).fetchall()
     sections=[]
     for lab,label in (('kids','KIDS LAB'),('media','MEDIA LAB')):
         people=[r for r in rows if r['lab']==lab]
@@ -301,6 +303,10 @@ def evening_digest():
         highlights=['• <b>'+esc(r['name'])+'</b>: '+esc(r['highlight'][:140]) for r in people if r['highlight'] and r['highlight']!='Не было']
         sections.append(part+('\n'+'\n'.join(highlights[:10]) if highlights else ''))
     send(GROUP,'🌙 <b>20:30 / КАК ПРОШЁЛ ДЕНЬ</b>\n\n'+'\n\n'.join(sections))
+    for lab in ('kids','media'):
+        pictures=[r for r in rows if r['lab']==lab and r['photo']][:10]
+        if len(pictures)>=2:api('sendMediaGroup',{'chat_id':GROUP,'media':[{'type':'photo','media':r['photo'],'caption':r['name'][:80]} for r in pictures]})
+        elif pictures:api('sendPhoto',{'chat_id':GROUP,'photo':pictures[0]['photo'],'caption':'Вечерний кадр / '+pictures[0]['name'][:80]})
 
 def tip():
     item=daily_content('tip',True)
@@ -572,6 +578,18 @@ def bot_message(msg):
             c.execute("update morning_checkins set photo=?,step='share' where user_id=? and day=?",(photo,uid,today()))
             c.execute("update users set stage='' where id=?",(uid,))
         send(uid,'Показать твои ответы и фото в общей утренней сводке с твоим именем?',[[{'text':'Да, можно','callback_data':'morning:share:yes'},{'text':'Нет, только мне','callback_data':'morning:share:no'}]]);return
+    if stage=='evening:photo':
+        if not checkin_open('pm'):
+            with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
+            send(uid,'Вечерний сбор завершён в 20:00. До завтра!');return
+        if not photo:
+            send(uid,'Пришли одно фото или пропусти этот шаг.',[[{'text':'Без фото','callback_data':'evening:photo:skip'}]]);return
+        with conn() as c:
+            row=c.execute('select step from evening_checkins where user_id=? and day=?',(uid,today())).fetchone()
+            if not row or row['step']!='photo':return
+            c.execute("update evening_checkins set photo=?,step='share' where user_id=? and day=?",(photo,uid,today()))
+            c.execute("update users set stage='' where id=?",(uid,))
+        send(uid,'Показать ответы и фото в общей вечерней сводке с твоим именем?',[[{'text':'Да, можно показать','callback_data':'evening:share:yes'},{'text':'Нет, только мне','callback_data':'evening:share:no'}]]);return
     if stage=='mission':
         if not photo and not text:send(uid,'Пришли фото или короткую фразу.');return
         kind=daily_content('mission')['mode']
@@ -705,7 +723,7 @@ def callback(q):
             send(uid,'Без вопросов. Завтра снова спросим, как дела.');return
         if action=='day' and value in ('Хороший','Обычный','Сложный'):
             with conn() as c:
-                c.execute("insert into evening_checkins(user_id,day,mood,step) values(?,?,?,'highlight_choice') on conflict(user_id,day) do update set mood=excluded.mood,step='highlight_choice',highlight='',satisfied='',visible=0",(uid,today(),value))
+                c.execute("insert into evening_checkins(user_id,day,mood,step) values(?,?,?,'highlight_choice') on conflict(user_id,day) do update set mood=excluded.mood,step='highlight_choice',highlight='',satisfied='',photo='',visible=0",(uid,today(),value))
                 c.execute("update users set stage='' where id=?",(uid,))
             send(uid,'<b>2/3. Был сегодня яркий момент?</b> Можно рассказать одной фразой.',[[{'text':'✨ Да, расскажу','callback_data':'evening:highlight:yes'},{'text':'Не было','callback_data':'evening:highlight:no'}],[{'text':'Пропустить','callback_data':'evening:highlight:skip'}]])
             return
@@ -733,8 +751,17 @@ def callback(q):
             with conn() as c:
                 row=c.execute('select step from evening_checkins where user_id=? and day=?',(uid,today())).fetchone()
                 if not row or row['step']!='satisfied':return
-                c.execute("update evening_checkins set satisfied=?,step='share' where user_id=? and day=?",(value,uid,today()))
-            send(uid,'Готово. <b>Включить твои ответы в общую сводку в 20:30?</b> Если упомянешь яркий момент, он выйдет с твоим именем.',[[{'text':'Да, можно показать','callback_data':'evening:share:yes'},{'text':'Нет, только мне','callback_data':'evening:share:no'}]])
+                c.execute("update evening_checkins set satisfied=?,step='photo_choice' where user_id=? and day=?",(value,uid,today()))
+            send(uid,'Хочешь добавить одно фото своего дня? Только если удобно.',[[{'text':'📷 Да, пришлю','callback_data':'evening:photo:yes'},{'text':'Без фото','callback_data':'evening:photo:no'}]])
+            return
+        if action=='photo' and value in ('yes','no','skip'):
+            with conn() as c:
+                row=c.execute('select step from evening_checkins where user_id=? and day=?',(uid,today())).fetchone()
+                if not row or row['step'] not in (('photo_choice',) if value in ('yes','no') else ('photo',)):return
+                c.execute('update evening_checkins set step=? where user_id=? and day=?',('photo' if value=='yes' else 'share',uid,today()))
+                c.execute('update users set stage=? where id=?',('evening:photo' if value=='yes' else '',uid))
+            if value=='yes':send(uid,'Пришли одно фото. Можно пропустить.',[[{'text':'Без фото','callback_data':'evening:photo:skip'}]])
+            else:send(uid,'Показать твои ответы в общей вечерней сводке с твоим именем?',[[{'text':'Да, можно показать','callback_data':'evening:share:yes'},{'text':'Нет, только мне','callback_data':'evening:share:no'}]])
             return
         if action=='share' and value in ('yes','no'):
             with conn() as c:
