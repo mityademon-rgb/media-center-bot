@@ -1,5 +1,6 @@
 """TIMECODE bot + Mini App. Python standard library only; one process per database."""
 import datetime as dt
+import base64
 import hashlib
 import hmac
 import html
@@ -28,6 +29,7 @@ SECRET = os.getenv('SECRET', '')
 JOIN = os.getenv('JOIN_SECRET', '')
 AI_KEY = os.getenv('MOONSHOT_API_KEY', '')
 AI_MODEL = os.getenv('KIMI_MODEL', 'kimi-k2.6')
+VISION_MODEL = os.getenv('KIMI_VISION_MODEL', 'kimi-k2.5')
 AI_API = 'https://api.moonshot.ai/v1'
 TZ = ZoneInfo('Europe/Moscow')
 BOTNAME = ''
@@ -104,6 +106,8 @@ def init():
             if name not in columns:c.execute('alter table daily_content add column '+name+" text not null default ''")
         if 'photo' not in {row['name'] for row in c.execute('pragma table_info(evening_checkins)')}:
             c.execute("alter table evening_checkins add column photo text not null default ''")
+        if 'comment' not in {row['name'] for row in c.execute('pragma table_info(missions)')}:
+            c.execute("alter table missions add column comment text not null default ''")
         if not GROUP:
             row=c.execute("select value from settings where key='group_chat'").fetchone()
             if row:GROUP=row['value']
@@ -205,6 +209,28 @@ def ai_json(system,request,max_tokens=250):
         obj=json.loads(result['choices'][0]['message']['content'])
         return obj if isinstance(obj,dict) else None
     except Exception as e:print('AI research:',str(e)[:160],flush=True);return None
+
+def photo_comment(file_id):
+    """View a Telegram-compressed photo with Kimi; return a playful caption or ''."""
+    if not AI_KEY or not TOKEN:return ''
+    file=(api('getFile',{'file_id':file_id}).get('result') or {})
+    path=file.get('file_path','')
+    if not re.fullmatch(r'photos/[A-Za-z0-9_-]+\.jpe?g',path) or file.get('file_size',0)>4_000_000:return ''
+    try:
+        fetched=subprocess.run(['curl','-4','-fsS','--connect-timeout','8','--max-time','20','--max-filesize','4000000',
+                                'https://api.telegram.org/file/bot'+TOKEN+'/'+path],capture_output=True,timeout=23)
+        if fetched.returncode or not 0<len(fetched.stdout)<=4_000_000:return ''
+        content=[{'type':'text','text':('Ты остроумный редактор школьного медиацентра TIMECODE. Посмотри на РЕАЛЬНОЕ фото ученика и придумай одну смешную подпись на русском до 120 символов. '
+                                         'Шути о предметах, композиции и неожиданном сюжете кадра, не о внешности, здоровье, личной жизни или способностях людей. '
+                                         'Не выдумывай детали вне кадра, не пытайся узнать личность или место. Если непонятно, что изображено, дай нейтральную, но остроумную подпись. Верни одну строку без кавычек.')},
+                 {'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+base64.b64encode(fetched.stdout).decode('ascii')}}]
+        data=kimi_request('/chat/completions',{'model':VISION_MODEL,'max_tokens':110,'messages':[{'role':'user','content':content}],
+                                               **({'thinking':{'type':'disabled'}} if VISION_MODEL.startswith('kimi-k2.') else {})},timeout=30)
+        result=str(data['choices'][0]['message']['content']).strip().strip('"«»').splitlines()[0]
+        return result[:170] if 8<=len(result)<=220 else ''
+    except Exception as error:
+        print('Kimi photo:',type(error).__name__,flush=True)
+        return ''
 
 def industry_search(query,sites):
     """Kimi Search Pro returns passages and URLs from selected film-industry sites."""
@@ -569,8 +595,9 @@ def bot_message(msg):
             with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
             send(uid,'Сбор мгновенных кадров уже закончился.');return
         if not photo:send(uid,'Отправь одно фото. Можно просто не участвовать.');return
+        commentary=photo_comment(photo)
         with conn() as c:
-            c.execute("insert into missions(user_id,day,kind,answer,photo,published) values(?,?,'instant','',?,1) on conflict(user_id,day) do update set kind='instant',answer='',photo=excluded.photo,published=1",(uid,today(),photo))
+            c.execute("insert into missions(user_id,day,kind,answer,photo,published,comment) values(?,?,'instant','',?,1,?) on conflict(user_id,day) do update set kind='instant',answer='',photo=excluded.photo,published=1,comment=excluded.comment",(uid,today(),photo,commentary))
             c.execute("update users set stage='' where id=?",(uid,))
         send(uid,'📸 Кадр принят. Сегодня в 20:30 увидишь его в общей подборке.');return
     if stage=='morning:important':
@@ -729,16 +756,21 @@ def callback(q):
         return
 
 def photos_digest():
-    with conn() as c:rows=c.execute("select m.photo,m.answer,u.name from missions m join users u on m.user_id=u.id where m.day=? and m.kind='instant' and m.published=1",(today(),)).fetchall()
+    with conn() as c:rows=c.execute("select m.user_id,m.photo,m.comment,u.name from missions m join users u on m.user_id=u.id where m.day=? and m.kind='instant' and m.published=1",(today(),)).fetchall()
     if not rows:return
-    pictures=[r for r in rows if r['photo']][:10]
+    pictures=[]
+    for item in rows:
+        if not item['photo']:continue
+        comment=item['comment'] or photo_comment(item['photo'])
+        if comment and not item['comment']:
+            with conn() as c:c.execute("update missions set comment=? where user_id=? and day=? and kind='instant'",(comment,item['user_id'],today()))
+        pictures.append({'photo':item['photo'],'name':item['name'],'comment':comment})
+        if len(pictures)>=10:break
     if len(pictures)>=2:
-        media=[{'type':'photo','media':r['photo'],'caption':('🎬 TIMECODE / СЕГОДНЯ В КАДРЕ\n'+r['name']+(' — '+r['answer'] if r['answer'] else ''))[:850]} for r in pictures]
+        media=[{'type':'photo','media':r['photo'],'caption':('📸 '+r['name']+'\n'+r['comment'] if r['comment'] else '📸 '+r['name'])[:850]} for r in pictures]
         api('sendMediaGroup',{'chat_id':GROUP,'media':media})
     elif pictures:
-        r=pictures[0];api('sendPhoto',{'chat_id':GROUP,'photo':r['photo'],'caption':'🎬 TIMECODE / СЕГОДНЯ В КАДРЕ\n'+r['name']+' — '+r['answer']})
-    texts=[r for r in rows if not r['photo']]
-    if texts:send(GROUP,'🎬 <b>ОТВЕТЫ ДНЯ</b>\n\n'+'\n'.join('• <b>'+esc(r['name'])+'</b>: '+esc(r['answer'][:200]) for r in texts[:12]))
+        r=pictures[0];api('sendPhoto',{'chat_id':GROUP,'photo':r['photo'],'caption':'📸 '+r['name']+('\n'+r['comment'] if r['comment'] else '')})
 
 def polling():
     global BOTNAME
