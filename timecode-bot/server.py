@@ -481,7 +481,8 @@ def bot_message(msg):
         return
     if chat.get('type')!='private' or not uid:return
     start=text.partition(' ')[2] if text.startswith('/start') else ''
-    if not allowed(uid):
+    first_join=not allowed(uid)
+    if first_join:
         if uid not in ADMINS and JOIN and start!=JOIN:
             send(uid,'Доступ по приглашению медиацентра. Попроси у преподавателя ссылку TIMECODE.');return
         roster(uid,' '.join(filter(None,[msg.get('from',{}).get('first_name',''),msg.get('from',{}).get('last_name','')])) or 'Участник')
@@ -493,10 +494,15 @@ def bot_message(msg):
             send(uid,'📸 Сфоткай то, что сейчас перед тобой, и отправь сюда одно фото до 20:00. В 20:30 покажу кадры в общем чате. Если не хочешь участвовать — просто не присылай.');return
         if start=='mission':
             with conn() as c:c.execute("update users set stage='mission' where id=?",(uid,))
-            send(uid,'🎬 Пришли ответ на сегодняшнее задание: фото или одну короткую фразу. После отправки выберешь, показывать ли её всем.');return
+            send(uid,'🎬 Пришли ответ на сегодняшнее задание: фото или одну короткую фразу.');return
         keys=[[{'text':'Открыть TIMECODE ↗','web_app':{'url':BASE}}]] if BASE else []
         if uid in ADMINS:keys += [[{'text':'📣 Написать всем','callback_data':'admin:publish'},{'text':'❓ Вопросы','callback_data':'admin:questions'}]]
-        send(uid,'<b>TIMECODE на связи.</b>\nУтром и вечером здесь перекличка. Игры, уроки и расписание — в приложении.',keys)
+        if first_join:
+            keys += [[{'text':'Я в Kids Lab','callback_data':'onboard:lab:kids'},{'text':'Я в Media Lab','callback_data':'onboard:lab:media'}]]
+            name=esc(msg.get('from',{}).get('first_name','').strip()[:40] or 'друг')
+            send(uid,'🎬 <b>Привет, '+name+'! Я TIMECODE.</b>\nБот медиацентра «Марфино». Будем на связи каждый день: утром спрошу, как начался день, вечером — что запомнилось. Из ваших ответов соберу живую сводку группы. Не хочется отвечать — можно пропустить.\n\n⏱ В 15:00 принесу короткий лайфхак про кино и съёмку. Во вторник и пятницу предложу снять мгновенный кадр.\n\n📱 В приложении найдёшь <b>расписание, игры и уроки</b> — можно вернуться к тем, что уже проходили.\n\nЯ пока только учусь и буду расти вместе с вами. Выбери свою лабораторию ниже и заглядывай в приложение. Начнём?',keys)
+        else:
+            send(uid,'🎬 <b>TIMECODE на связи.</b> Расписание, игры и уроки — в приложении. Я здесь, если захочешь задать вопрос или присоединиться к сегодняшнему выпуску.',keys)
         return
     if uid in ADMINS and text.startswith('/quest '):
         send(uid,'Выпуск текстовых квестов остановлен. Готовим визуальную игру: сцены, действия, анимация и разветвления. Черновики не публикуются.')
@@ -651,6 +657,12 @@ def callback(q):
     uid=q.get('from',{}).get('id');data=q.get('data','');msg=q.get('message',{});cid=msg.get('chat',{}).get('id')
     if not uid or not allowed(uid):return
     api('answerCallbackQuery',{'callback_query_id':q['id']})
+    if data in ('onboard:lab:kids','onboard:lab:media'):
+        lab=data.rsplit(':',1)[1]
+        with conn() as c:c.execute('update users set lab=? where id=?',(lab,uid))
+        label='Kids Lab' if lab=='kids' else 'Media Lab'
+        send(uid,'🎬 Ты в '+label+'. Теперь расписание и задания будут для твоей лаборатории.'+(' Открой приложение — там уже есть чем заняться.' if BASE else ''),[[{'text':'Открыть TIMECODE ↗','web_app':{'url':BASE}}]] if BASE else None)
+        return
     if uid in ADMINS and data.startswith('quest:'):
         try:_,action,raw_id=data.split(':',2);qid=int(raw_id)
         except (ValueError,TypeError):return
