@@ -270,7 +270,7 @@ def digest(period):
 def tip():
     item=daily_content('tip',True)
     source='\n<a href="'+html.escape(item['source'],quote=True)+'">Откуда идея ↗</a>' if item['source'] else ''
-    send(GROUP,'⏱ <b>15:00 / ПРИЁМ ДНЯ</b>\n\n<b>'+esc(item['title'])+'</b>\n'+esc(item['body'])+source+',[[{'text':'Открыть лайфхак в TIMECODE ↗','url':BASE+'/?view=tip'}]])
+    send(GROUP,'⏱ <b>15:00 / ПРИЁМ ДНЯ</b>\n\n<b>'+esc(item['title'])+'</b>\n'+esc(item['body'])+source,[[{'text':'Открыть лайфхак в TIMECODE ↗','url':BASE+'/?view=tip'}]])
 
 def mission():
     if not BOTNAME:return
