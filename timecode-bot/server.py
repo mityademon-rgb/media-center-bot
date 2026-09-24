@@ -555,6 +555,8 @@ def photos_digest():
 def polling():
     global BOTNAME
     me=api('getMe'); BOTNAME=(me.get('result') or {}).get('username','')
+    if BOTNAME and BASE:
+        api('setChatMenuButton',{'menu_button':{'type':'web_app','text':'Открыть TIMECODE','web_app':{'url':BASE}}})
     offset=0
     while True:
         try:
