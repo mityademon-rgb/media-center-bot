@@ -85,6 +85,7 @@ def init():
         c.executescript('''
         create table if not exists users(id integer primary key,name text not null,lab text not null default 'kids',role text not null default 'member',enabled integer not null default 1,stage text not null default '',joined integer not null);
         create table if not exists answers(id integer primary key,user_id integer not null,period text not null,day text not null,choice text not null default '',detail text not null default '',published integer not null default 0,unique(user_id,period,day));
+        create table if not exists evening_checkins(user_id integer not null,day text not null,mood text not null default '',highlight text not null default '',satisfied text not null default '',visible integer not null default 0,step text not null default '',primary key(user_id,day));
         create table if not exists missions(id integer primary key,user_id integer not null,day text not null,kind text not null,answer text not null default '',photo text not null default '',published integer not null default 0,unique(user_id,day));
         create table if not exists lessons(id integer primary key,lab text not null,weekday integer not null,start text not null,title text not null,place text not null default '',enabled integer not null default 1);
         create table if not exists overrides(id integer primary key,day text not null,lab text not null,start text not null,title text not null,place text not null default '',cancelled integer not null default 0);
@@ -270,6 +271,7 @@ def daily_content(kind,generate=False):
     return {k:row[k] for k in (('title','body','body_kids','body_media','mode','source') if kind=='mission' else ('title','body','mode','source'))}
 
 def digest(period):
+    if period=='pm':return evening_digest()
     with conn() as c:
         rows=c.execute('select u.name,a.choice,a.detail from answers a join users u on u.id=a.user_id where a.day=? and a.period=? and a.published=1 order by a.id',(today(),period)).fetchall()
     if not rows: return
@@ -282,6 +284,19 @@ def digest(period):
     else:
         body='\n'.join('• <b>'+esc(f['name'])+'</b> — '+esc(f['words'] or f['mood']) for f in facts[:14])
     send(GROUP,heading+'\n\n'+body)
+
+def evening_digest():
+    with conn() as c:
+        rows=c.execute('select u.name,e.mood,e.highlight,e.satisfied from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.visible=1 and e.step=? order by u.name', (today(),'done')).fetchall()
+    if not rows:return
+    counts={label:sum(r['mood']==label for r in rows) for label in ('Хороший','Обычный','Сложный')}
+    satisfied=sum(r['satisfied']=='Да' for r in rows)
+    body='🌙 <b>20:30 / КАК ПРОШЁЛ ДЕНЬ</b>\n\nНа связи '+str(len(rows))+'. '
+    body+='Хороший день — '+str(counts['Хороший'])+', обычный — '+str(counts['Обычный'])+', непростой — '+str(counts['Сложный'])+'. '
+    body+='Довольны своим днём: '+str(satisfied)+'.'
+    highlights=['• <b>'+esc(r['name'])+'</b>: '+esc(r['highlight'][:140]) for r in rows if r['highlight'] and r['highlight']!='Не было']
+    if highlights:body+='\n\n<b>Что запомнилось:</b>\n'+'\n'.join(highlights[:10])
+    send(GROUP,body)
 
 def tip():
     item=daily_content('tip',True)
@@ -355,7 +370,7 @@ def morning():
 def evening():
     with conn() as c: users=c.execute('select id from users where enabled=1').fetchall()
     for u in users:
-        send(u['id'],'🌙 <b>19:00 / ВЕЧЕРНЯЯ ПЕРЕКЛИЧКА</b>\nКаким получился сегодняшний дубль? Выбери кнопку и, если хочешь, расскажи одним предложением.',[[{'text':'✨ Получилось','callback_data':'mood:pm:Получилось'},{'text':'😄 Было смешно','callback_data':'mood:pm:Было смешно'}],[{'text':'🔁 Хочу переснять','callback_data':'mood:pm:Хочу переснять'}]])
+        send(u['id'],'🌙 <b>19:00 / ВЕЧЕРНЯЯ ПЕРЕКЛИЧКА</b>\nТри коротких вопроса о твоём дне. Ответы займут меньше минуты.\n\n<b>1/3. Как прошёл день?</b>',[[{'text':'🙂 Хорошо','callback_data':'evening:day:Хороший'},{'text':'😐 Обычно','callback_data':'evening:day:Обычный'}],[{'text':'😮 Непросто','callback_data':'evening:day:Сложный'},{'text':'Пропустить','callback_data':'evening:skip'}]])
 
 def scheduler():
     while True:
@@ -517,6 +532,19 @@ def bot_message(msg):
             c.execute("update users set stage='' where id=?",(uid,))
         send(uid,'Получено! Можно добавить в общую подборку?',[[{'text':'Да, показывайте всем','callback_data':'share:mission:yes'}],[{'text':'Только для себя','callback_data':'share:mission:no'}]])
         return
+    if stage=='evening:highlight':
+        line=text.strip()
+        if not line or line.startswith('/'):
+            send(uid,'Одной короткой фразой — что сегодня запомнилось? Или нажми «Пропустить».',[[{'text':'Пропустить','callback_data':'evening:highlight:skip'}]])
+            return
+        with conn() as c:
+            row=c.execute('select step from evening_checkins where user_id=? and day=?',(uid,today())).fetchone()
+            if row and row['step']=='highlight':
+                c.execute('update evening_checkins set highlight=?,step=? where user_id=? and day=?',(line[:150],'satisfied',uid,today()))
+            c.execute("update users set stage='' where id=?",(uid,))
+        if not row or row['step']!='highlight':send(uid,'Вечерняя перекличка на сегодня уже закончилась.');return
+        send(uid,'<b>3/3. Ты доволен сегодняшним днём?</b>',[[{'text':'Да 🙂','callback_data':'evening:satisfied:Да'},{'text':'Не очень 😐','callback_data':'evening:satisfied:Не очень'}],[{'text':'Нет 🙁','callback_data':'evening:satisfied:Нет'}]])
+        return
     if stage.startswith('answer:'):
         period=stage.split(':')[1]
         with conn() as c:
@@ -562,6 +590,57 @@ def callback(q):
             if row and not row['answered']:c.execute('update users set stage=? where id=?',('admin_question:'+number,uid))
         if not row or row['answered']:send(uid,'На этот вопрос уже ответили.');return
         send(uid,'Ответь на вопрос #'+number+' следующим сообщением: текст, фото, видео или документ. /stop — отменить.')
+        return
+    if data.startswith('evening:'):
+        parts=data.split(':',2)
+        action=parts[1] if len(parts)>1 else ''
+        value=parts[2] if len(parts)>2 else ''
+        if action=='skip':
+            with conn() as c:
+                c.execute("insert into evening_checkins(user_id,day,step) values(?,?,'done') on conflict(user_id,day) do update set step='done',visible=0",(uid,today()))
+                c.execute("update users set stage='' where id=?",(uid,))
+            send(uid,'Без вопросов. Завтра снова спросим, как дела.');return
+        if action=='day' and value in ('Хороший','Обычный','Сложный'):
+            with conn() as c:
+                c.execute("insert into evening_checkins(user_id,day,mood,step) values(?,?,?,'highlight_choice') on conflict(user_id,day) do update set mood=excluded.mood,step='highlight_choice',highlight='',satisfied='',visible=0",(uid,today(),value))
+                c.execute("update users set stage='' where id=?",(uid,))
+            send(uid,'<b>2/3. Был сегодня яркий момент?</b> Можно рассказать одной фразой.',[[{'text':'✨ Да, расскажу','callback_data':'evening:highlight:yes'},{'text':'Не было','callback_data':'evening:highlight:no'}],[{'text':'Пропустить','callback_data':'evening:highlight:skip'}]])
+            return
+        if action=='highlight' and value in ('yes','no','skip'):
+            with conn() as c:
+                row=c.execute('select step from evening_checkins where user_id=? and day=?',(uid,today())).fetchone()
+                if not row or row['step']!='highlight_choice':return
+                if value=='yes':
+                    c.execute("update evening_checkins set step='highlight' where user_id=? and day=?",(uid,today()))
+                    c.execute("update users set stage='evening:highlight' where id=?",(uid,))
+                else:
+                    c.execute('update evening_checkins set highlight=?,step=? where user_id=? and day=?',('Не было' if value=='no' else '','satisfied',uid,today()))
+            if value=='yes':send(uid,'Расскажи одним предложением: что запомнилось сегодня?',[[{'text':'Пропустить','callback_data':'evening:detail:skip'}]])
+            else:send(uid,'<b>3/3. Ты доволен сегодняшним днём?</b>',[[{'text':'Да 🙂','callback_data':'evening:satisfied:Да'},{'text':'Не очень 😐','callback_data':'evening:satisfied:Не очень'}],[{'text':'Нет 🙁','callback_data':'evening:satisfied:Нет'}]])
+            return
+        if action=='detail' and value=='skip':
+            with conn() as c:
+                row=c.execute('select step from evening_checkins where user_id=? and day=?',(uid,today())).fetchone()
+                if not row or row['step']!='highlight':return
+                c.execute("update evening_checkins set highlight='',step='satisfied' where user_id=? and day=?",(uid,today()))
+                c.execute("update users set stage='' where id=?",(uid,))
+            send(uid,'<b>3/3. Ты доволен сегодняшним днём?</b>',[[{'text':'Да 🙂','callback_data':'evening:satisfied:Да'},{'text':'Не очень 😐','callback_data':'evening:satisfied:Не очень'}],[{'text':'Нет 🙁','callback_data':'evening:satisfied:Нет'}]])
+            return
+        if action=='satisfied' and value in ('Да','Не очень','Нет'):
+            with conn() as c:
+                row=c.execute('select step from evening_checkins where user_id=? and day=?',(uid,today())).fetchone()
+                if not row or row['step']!='satisfied':return
+                c.execute("update evening_checkins set satisfied=?,step='share' where user_id=? and day=?",(value,uid,today()))
+            send(uid,'Готово. <b>Включить твои ответы в общую сводку в 20:30?</b> Если упомянешь яркий момент, он выйдет с твоим именем.',[[{'text':'Да, можно показать','callback_data':'evening:share:yes'},{'text':'Нет, только мне','callback_data':'evening:share:no'}]])
+            return
+        if action=='share' and value in ('yes','no'):
+            with conn() as c:
+                row=c.execute('select step from evening_checkins where user_id=? and day=?',(uid,today())).fetchone()
+                if not row or row['step']!='share':return
+                c.execute("update evening_checkins set visible=?,step='done' where user_id=? and day=?",(int(value=='yes'),uid,today()))
+                c.execute("update users set stage='' where id=?",(uid,))
+            send(uid,'Спасибо! '+('Твой ответ войдёт в общую сводку в 20:30.' if value=='yes' else 'Ответы останутся только у тебя.'))
+            return
         return
     if data.startswith('mood:'):
         try:_,period,choice=data.split(':',2)
