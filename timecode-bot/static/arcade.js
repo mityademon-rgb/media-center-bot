@@ -1,32 +1,19 @@
 /* TIMECODE arcade: two local games, no dependencies or server state while playing. */
 let battle=null;
-const battleSize=8;
-function battleFleet(){
- for(let round=0;round<80;round++){
-  let occupied=new Set(),fleet=[],success=true;
-  for(const length of [4,3,2,2]){
-   let placed=false;
-   for(let attempt=0;attempt<160;attempt++){
-    let horizontal=Math.random()<.5,x=Math.floor(Math.random()*(battleSize-(horizontal?length:1)+1)),y=Math.floor(Math.random()*(battleSize-(horizontal?1:length)+1));
-    let cells=Array.from({length},(_,k)=>(y+(horizontal?0:k))*battleSize+x+(horizontal?k:0));
-    if(cells.some(n=>{let cx=n%battleSize,cy=Math.floor(n/battleSize);return [...occupied].some(p=>Math.abs(p%battleSize-cx)<=1&&Math.abs(Math.floor(p/battleSize)-cy)<=1)}))continue;
-    fleet.push(cells);cells.forEach(n=>occupied.add(n));placed=true;break;
-   }
-   if(!placed){success=false;break}
-  }
-  if(success)return fleet;
- }
- return [[0,1,2,3],[16,17,18],[32,33],[48,49]];
+const battleSize=4;
+function battleStart(){
+ let camera=Math.floor(Math.random()*2)*battleSize+2+Math.floor(Math.random()*2);
+ let mic=(2+Math.floor(Math.random()*2))*battleSize+Math.floor(Math.random()*2);
+ battle={objects:[{cell:camera,name:'Камера',icon:'📹'},{cell:mic,name:'Микрофон',icon:'🎤'}],shots:new Set(),last:'Камера вверху справа. Микрофон внизу слева. Всего четыре попытки.',done:false};
 }
-function battleKey(){return 'timecode-fleet-best-'+(state?.me?.id||'guest')}
-function battleStart(){battle={fleet:battleFleet(),shots:new Set(),last:'Найди четыре корабля. Счёт идёт на точность.',won:false};}
-function battleGame(){if(!battle)battleStart();let hit=new Set(battle.fleet.flat()),sunk=battle.fleet.filter(ship=>ship.every(n=>battle.shots.has(n))).length,best=localStorage.getItem(battleKey())||'—';
- let cells=Array.from({length:64},(_,i)=>{let shot=battle.shots.has(i),target=hit.has(i),ship=battle.fleet.find(s=>s.includes(i)),dead=ship?.every(n=>battle.shots.has(n)),label='Клетка '+String.fromCharCode(65+i%8)+(Math.floor(i/8)+1);return `<button class="sea-cell ${shot?(target?(dead?'sunk':'hit'):'miss'):''}" aria-label="${label}${shot?(target?' попадание':' мимо'):''}" ${shot||battle.won?'disabled':''} onclick="battleFire(${i})">${shot?(target?(dead?'✦':'◉'):'·'):''}</button>`}).join('');
- return `${commonHeader('АРКАДА / МОРСКОЙ БОЙ','ФЛОТ В КАДРЕ.','Ты снимаешь экспедицию. Корабли скрыты в море: найди их, открывая клетки. При каждом новом заходе флот меняет расположение.')}
- <div class="battle-shell"><div class="battle-top"><span><b>● REC</b> / ЭКСПЕДИЦИЯ</span><span>ПОПЫТОК: ${battle.shots.size}　|　КОРАБЛЕЙ: ${sunk}/4</span></div><div class="battle-field"><div class="sea-grid">${cells}</div><div class="battle-radar"><span>РАДАР / 08×08</span><div class="radar-eye"><i></i><i></i><i></i></div><strong>${battle.won?'ФЛОТ НАЙДЕН':sunk+' / 4'}</strong><p>Твой рекорд: ${best} ${best==='—'?'':'попыток'}</p><small>Попадание ◉ · найденный корабль ✦</small></div></div><p class="battle-status" role="status">${battle.last}</p><div class="actions"><button class="btn violet" onclick="battleStart();render()">Новая карта ↗</button><button class="btn ghost" onclick="go('games')">Все игры</button></div></div>`
+function battleGame(){if(!battle)battleStart();let found=battle.objects.filter(o=>battle.shots.has(o.cell)).length;
+ let cells=Array.from({length:16},(_,i)=>{let shot=battle.shots.has(i),object=battle.objects.find(o=>o.cell===i),reveal=battle.done&&object;return `<button class="sea-cell ${shot?(object?'sunk':'miss'):reveal?'revealed':''}" aria-label="Клетка ${Math.floor(i/4)+1}, ${i%4+1}${shot?(object?', '+object.name:', пусто'):''}" ${battle.done||shot?'disabled':''} onclick="battleFire(${i})">${shot?(object?object.icon:'·'):reveal?object.icon:''}</button>`}).join('');
+ return `${commonHeader('ИГРА / ПОИСК НА ПЛОЩАДКЕ','ПРОПАЛ РЕКВИЗИТ.','Найди камеру и микрофон по подсказкам. Четыре открытия клеток на оба предмета.')}
+ <div class="battle-shell"><div class="battle-top"><span><b>● REC</b> / ПОИСК</span><span>ОСТАЛОСЬ: ${4-battle.shots.size}　|　НАЙДЕНО: ${found}/2</span></div><div class="battle-clues"><span>📹 Камера — <b>вверху справа</b></span><span>🎤 Микрофон — <b>внизу слева</b></span></div><div class="battle-field"><div class="sea-grid">${cells}</div><div class="battle-radar"><span>ПЛАН ПЛОЩАДКИ / 4×4</span><strong>${battle.done?(found===2?'Всё найдено':'Поиск окончен'):found+' / 2'}</strong><p>Нажимай на клетки в нужных частях площадки.</p><small>Четыре попытки на оба предмета</small></div></div><p class="battle-status" role="status">${battle.last}</p><div class="actions"><button class="btn violet" onclick="battleStart();render()">Новый поиск ↗</button><button class="btn ghost" onclick="go('games')">Все игры</button></div></div>`;
 }
-function battleFire(cell){if(!battle||battle.won||battle.shots.has(cell))return;battle.shots.add(cell);let ship=battle.fleet.find(s=>s.includes(cell));if(ship){battle.last=ship.every(n=>battle.shots.has(n))?'Корабль найден целиком. В монтаж!':'Есть попадание. Соседние клетки под подозрением.'}else battle.last='Мимо. Море не сдаёт сюжет с первого дубля.';
- if(battle.fleet.every(s=>s.every(n=>battle.shots.has(n)))){battle.won=true;let n=battle.shots.size,best=Number(localStorage.getItem(battleKey()))||Infinity;if(n<best)localStorage.setItem(battleKey(),String(n));battle.last='Четыре корабля в кадре за '+n+' попыток. Хочешь побить свой рекорд?';saveGame('battleship',String(n))}render();}
+function battleFire(cell){if(!battle||battle.done||battle.shots.has(cell))return;battle.shots.add(cell);let object=battle.objects.find(o=>o.cell===cell);let found=battle.objects.filter(o=>battle.shots.has(o.cell)).length;
+ battle.last=object?object.name+' найдена! '+(found===2?'Оба предмета снова на площадке.':'Ищи второй предмет по подсказке.'):'Пусто. Смотри на подсказки над полем.';
+ if(found===2||battle.shots.size===4){battle.done=true;if(found!==2)battle.last='Попытки закончились. Оба предмета показаны на поле. Сыграем ещё?';else saveGame('battleship',String(battle.shots.size));}render();}
 
 const cordSize=16;
 let cord=null,cordTimer=null,cordTouch=null;
