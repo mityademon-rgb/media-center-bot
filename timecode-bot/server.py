@@ -502,6 +502,10 @@ def bot_message(msg):
         else:
             send(uid,'🎬 <b>TIMECODE на связи.</b> Расписание, игры и уроки — в приложении. Я здесь, если захочешь задать вопрос или присоединиться к сегодняшнему выпуску.',keys)
         return
+    if uid in ADMINS and text in ('/publish','📣 Написать всем'):
+        with conn() as c:c.execute("update users set stage='admin_publish' where id=?",(uid,))
+        send(uid,'📣 Напиши сообщение или отправь фото, видео либо документ. Бот разошлёт его всем лично и продублирует во взрослый чат, если тот подключён. /stop — отмена.')
+        return
     if uid in ADMINS and text.startswith('/quest '):
         send(uid,'Выпуск текстовых квестов остановлен. Готовим визуальную игру: сцены, действия, анимация и разветвления. Черновики не публикуются.')
         return
