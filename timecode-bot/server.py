@@ -483,8 +483,6 @@ def bot_message(msg):
     start=text.partition(' ')[2] if text.startswith('/start') else ''
     first_join=not allowed(uid)
     if first_join:
-        if uid not in ADMINS and JOIN and start!=JOIN:
-            send(uid,'Доступ по приглашению медиацентра. Попроси у преподавателя ссылку TIMECODE.');return
         roster(uid,' '.join(filter(None,[msg.get('from',{}).get('first_name',''),msg.get('from',{}).get('last_name','')])) or 'Участник')
     if text.startswith('/start'):
         if start=='instant':
