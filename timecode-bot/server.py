@@ -565,12 +565,11 @@ def bot_message(msg):
         except (ValueError,AssertionError):send(uid,'Формат: /change kids 2026-10-01 18:00 | Новая тема | Кабинет');return
     caption=(msg.get('caption') or '').strip()
     if uid in ADMINS and (text.startswith('/send ') or caption.startswith('/send')):
-        if not GROUP:send(uid,'Сначала добавь бота в общий чат и напиши там /connect.');return
         body=(text if text.startswith('/send ') else caption)[5:].strip()
         if not body and not (msg.get('photo') or msg.get('document') or msg.get('video')):
             send(uid,'Добавь текст после /send или отправь файл с подписью /send Название.');return
-        result=send_attachment(GROUP,msg,'TIMECODE / '+body) if msg.get('photo') or msg.get('document') or msg.get('video') else send(GROUP,'📢 <b>TIMECODE</b>\n'+esc(body))
-        send(uid,'Опубликовано в общем чате.' if result.get('ok') else 'Не удалось отправить. Проверь права бота в общем чате.');return
+        sent,failed=publish_to_all(msg,body)
+        send(uid,'Отправлено: '+str(sent)+'. Не доставлено: '+str(failed)+'.');return
     if uid not in ADMINS and text.startswith('/ask '):
         question=text[5:].strip()
         if not question:send(uid,'Напиши вопрос после /ask.');return
@@ -580,13 +579,12 @@ def bot_message(msg):
     with conn() as c: u=c.execute('select stage from users where id=?',(uid,)).fetchone()
     stage=u['stage'] if u else ''
     if uid in ADMINS and stage=='admin_publish':
-        if not GROUP:send(uid,'Сначала подключи общий чат командой /connect внутри чата.');return
         body=(msg.get('caption') or text).strip()
         if not body and not (msg.get('photo') or msg.get('document') or msg.get('video')):send(uid,'Пришли текст, фото, видео или документ. /stop — отменить.');return
-        result=send_attachment(GROUP,msg,'TIMECODE / '+body) if msg.get('photo') or msg.get('document') or msg.get('video') else send(GROUP,'📢 <b>TIMECODE</b>\n'+esc(body))
-        if result.get('ok'):
+        sent,failed=publish_to_all(msg,body)
+        if sent:
             with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
-        send(uid,'Опубликовано в общем чате.' if result.get('ok') else 'Не отправилось. Режим публикации сохранён, попробуй ещё раз.');return
+        send(uid,'Отправлено: '+str(sent)+'. Не доставлено: '+str(failed)+('.' if sent else ' Режим публикации сохранён.'));return
     if uid in ADMINS and stage.startswith('admin_question:'):
         question_id=int(stage.split(':')[1]);response_text=(msg.get('caption') or text).strip()
         if not response_text and not (msg.get('photo') or msg.get('document') or msg.get('video')):send(uid,'Пришли ответ текстом или файлом. /stop — отменить.');return
@@ -643,7 +641,7 @@ def bot_message(msg):
         return
     question=(msg.get('caption') or text).strip()
     if uid in ADMINS:
-        send(uid,'Для общего чата: /send Текст или фото с подписью /send Текст. Вопросы учеников придут сюда; отвечай ответом на сообщение. /help — все команды.');return
+        send(uid,'Для всех подписчиков: /send Текст или фото с подписью /send Текст. Вопросы учеников придут сюда; отвечай ответом на сообщение. /help — все команды.');return
     if question.startswith('/ask '):question=question[5:].strip()
     if question and not question.startswith('/'):
         if ask_admins(uid,question):send(uid,'Вопрос ушёл преподавателю. Ответ придёт сюда.')
@@ -669,7 +667,7 @@ def callback(q):
         return
     if uid in ADMINS and data=='admin:publish':
         with conn() as c:c.execute("update users set stage='admin_publish' where id=?",(uid,))
-        send(uid,'📣 Отправь сообщение, фото, видео или документ. Опубликую в общем чате. /stop — отменить.')
+        send(uid,'📣 Отправь сообщение, фото, видео или документ. Разошлю каждому в личный бот и продублирую в чат взрослых, если он подключён. /stop — отменить.')
         return
     if uid in ADMINS and data=='admin:questions':
         with conn() as c:rows=c.execute('select q.id,q.body,u.name from questions q join users u on q.user_id=u.id where q.answered=0 order by q.id desc limit 5').fetchall()
