@@ -915,6 +915,9 @@ class Handler(BaseHTTPRequestHandler):
             except (KeyError,ValueError,AssertionError):return self.out({'error':'Проверьте дату и поля'},400)
         return self.out({'error':'Нет доступа'},403)
 
+import notification_delivery
+notification_delivery.install(globals())
+
 if __name__=='__main__':
     if not SECRET or len(SECRET)<32:raise SystemExit('Set SECRET to at least 32 random characters')
     init()
