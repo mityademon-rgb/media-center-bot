@@ -1,6 +1,7 @@
 """The same daily broadcasts go to every subscriber and the connected adult chat."""
 import datetime as dt
 import html
+import re
 
 
 def install(s):
@@ -17,6 +18,42 @@ def install(s):
     def broadcast(message, keyboard=None):
         for chat in destinations():
             s['send'](chat, message, keyboard)
+
+    def publish_to_all(msg, body):
+        """Send a teacher's message or Telegram media to every enrolled user and the adult chat."""
+        with s['conn']() as c:
+            recipients=[r['id'] for r in c.execute('select id from users order by id')]
+        if s['GROUP']:recipients.append(s['GROUP'])
+        media=bool(msg.get('photo') or msg.get('document') or msg.get('video'))
+        results=[]
+        for chat in recipients:
+            try:
+                result=(s['send_attachment'](chat,msg,'TIMECODE / '+body)
+                        if media else s['send'](chat,'📢 <b>TIMECODE</b>\n'+s['esc'](body)))
+            except Exception:
+                result={}
+            results.append(bool(result and result.get('ok')))
+        return sum(results),len(recipients)-sum(results)
+
+    def make_daily(kind):
+        if kind!='tip':return original_make_daily(kind)
+        base=s['fallback_content']('tip')
+        if not s['AI_KEY'] or not s['creative_enabled']():return base
+        prompt=('Перепиши этот проверенный практический совет для ребят 12–17 лет. '
+                'Сохрани тот же технический смысл. Заголовок: 2–5 простых слов. '
+                'Текст: ровно два коротких предложения. Сначала что сделать телефоном '
+                'или на съёмке, затем какой будет видимый или слышимый результат. '
+                'Никаких имён, фильмов, сериалов, брендов, ссылок, цитат, метафор '
+                'и слов, требующих объяснения. Не добавляй новых фактов. '
+                'JSON {"title":"...","body":"..."}.')
+        drafted=s['ai_json'](prompt,base['body'],220) or {}
+        title=str(drafted.get('title','')).strip();body=str(drafted.get('body','')).strip()
+        action=re.search(r'\b(сними|запиши|поставь|поверни|подойди|проверь|послушай|задай|оставь|выбери|сравни|включи|попробуй|сделай|подожди|начни)\b',body,re.I)
+        if 5<=len(title)<=45 and 55<=len(body)<=230 and action and body.count('.')>=2 and not any(c in body for c in '«»"'):
+            return {'title':title,'body':body,'mode':'text','source':''}
+        return base
+
+    original_make_daily=s['make_daily']
 
     def morning():
         original_morning()
@@ -125,4 +162,4 @@ def install(s):
                 message='🎬 <b>СЕГОДНЯ ЗАНЯТИЕ / '+label+'</b>\n'+s['esc'](event['start'])+' · '+s['esc'](event['title'])+'\n'+s['esc'](event['place'])+'\n\nДмитрий Витальевич ждёт. Камеры зарядить; себя — по возможности тоже.'
                 broadcast(message)
 
-    s.update({'morning':morning,'evening':evening,'reminder':reminder,'digest':digest,'evening_digest':lambda:digest('pm'),'tip':tip,'mission':mission,'instant_photo':instant_photo,'photos_digest':photos_digest,'run_slot':run_slot,'weekly':weekly,'class_reminders':class_reminders})
+    s.update({'morning':morning,'evening':evening,'reminder':reminder,'digest':digest,'evening_digest':lambda:digest('pm'),'tip':tip,'mission':mission,'instant_photo':instant_photo,'photos_digest':photos_digest,'run_slot':run_slot,'weekly':weekly,'class_reminders':class_reminders,'publish_to_all':publish_to_all,'make_daily':make_daily})
