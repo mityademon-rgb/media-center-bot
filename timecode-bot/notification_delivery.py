@@ -1,6 +1,7 @@
 """The same daily broadcasts go to every subscriber and the connected adult chat."""
 import datetime as dt
 import html
+import json
 import re
 
 
@@ -13,7 +14,7 @@ def install(s):
             return [r['id'] for r in c.execute('select id from users where enabled=1')]
 
     def destinations():
-        return audience() + ([s['GROUP']] if s['GROUP'] else [])
+        return list(dict.fromkeys(audience() + ([s['GROUP']] if s['GROUP'] else [])))
 
     def broadcast(message, keyboard=None):
         for chat in destinations():
@@ -77,12 +78,32 @@ def install(s):
             with s['conn']() as c:
                 rows = c.execute("select u.name,e.mood,e.highlight,e.satisfied from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.step='done' and e.mood!='' order by u.name", (s['today'](),)).fetchall()
             if rows:
-                counts = {k: sum(r['mood'] == k for r in rows) for k in ('Хороший', 'Обычный', 'Сложный')}
-                body = f"На связи {len(rows)}. Хороший день: {counts['Хороший']}, обычный: {counts['Обычный']}, непростой: {counts['Сложный']}. Довольны днём: {sum(r['satisfied'] == 'Да' for r in rows)}."
-                highlights = ['• <b>' + s['esc'](r['name']) + '</b>: ' + s['esc'](r['highlight'][:140]) for r in rows if r['highlight'] and r['highlight'] != 'Не было']
-                if highlights: body += '\n' + '\n'.join(highlights[:10])
-            else: body = 'Сегодня без ответов. Завтра будет новый день.'
-            broadcast('🌙 <b>20:30 / КАК ПРОШЁЛ ДЕНЬ</b>\n\n' + body)
+                facts=[{'name':r['name'],'mood':r['mood'],'highlight':r['highlight'][:140],
+                        'satisfied':r['satisfied']} for r in rows[:15]]
+                weekday=s['now']().weekday()
+                prompt=('Напиши короткий остроумный вечерний выпуск школьного медиацентра. '
+                        'Говори как добрый редактор, который прочитал ответы ребят: вступление, '
+                        'истории конкретных участников, один вывод и финальное пожелание. '
+                        'Не делай список, отчёт, подсчёт голосов или табличную сводку. '
+                        'Обращайся к участникам по их именам без переименования. '
+                        'Цитируй их достижения только по смыслу, не придумывай подробностей '
+                        'и не делай выводов об оценках, здоровье, семье или причинах настроения. '
+                        'Улыбка над ситуацией допустима, над ребёнком — нет. '
+                        'Если сегодня пятница, пожелай хороших выходных; иначе пожелай хорошего вечера. '
+                        'Длина 300–650 знаков, обычный текст без разметки. '
+                        'JSON {"text":"..."}.')
+                draft=s['ai_json'](prompt,json.dumps({'weekday':weekday,'answers':facts},ensure_ascii=False),400) if s['AI_KEY'] else None
+                generated=str((draft or {}).get('text','')).strip()
+                names=[r['name'] for r in rows if r['highlight'] and r['highlight']!='Не было']
+                if generated and 120<=len(generated)<=900 and not re.search(r'<[^>]+>|(?:На связи|Хороший день:|Довольны днём:)',generated,re.I) and all(name in generated for name in names[:4]):
+                    body=generated
+                else:
+                    intro='На мою просьбу рассказать о дне откликнулись самые смелые. Снимаю шляпу.' if len(rows)<4 else 'Сегодня в редакцию прилетели новости от наших героев.'
+                    highlights=[r['name']+': «'+r['highlight'][:140].rstrip(' .!')+'». ' for r in rows if r['highlight'] and r['highlight']!='Не было']
+                    body=intro+' '+(' '.join(highlights[:5]) if highlights else 'Не каждый день обязан быть премьерой: спасибо всем, кто был на связи.')
+                    body+=' На этом съёмочный день закрыт. '+('Хороших выходных!' if weekday==4 else 'Хорошего вечера!')
+            else: body='Сегодня в редакции тихо. Даже самые разговорчивые герои иногда уходят за кадр. Хорошего вечера!'
+            broadcast('🌙 <b>КАК ПРОШЁЛ ДЕНЬ</b>\n\n' + s['esc'](body))
             return
         with s['conn']() as c:
             rows = c.execute("select u.name,m.sleep,m.mood,m.important from morning_checkins m join users u on u.id=m.user_id where m.day=? and m.step='done' and m.mood!='' order by u.name", (s['today'](),)).fetchall()
@@ -150,10 +171,19 @@ def install(s):
         with s['conn']() as c:
             overrides=c.execute('select * from overrides where day=?',(day,)).fetchall()
             regular=c.execute('select * from lessons where weekday=? and enabled=1',(t.weekday(),)).fetchall()
+        if t.weekday()==5 and t.hour==9 and t.minute==0 and s['claim']('saturday-classes',day):
+            lines=[]
+            for lab in ('kids','media'):
+                event=next((o for o in overrides if o['lab']==lab),None)
+                if event is None:event=next((r for r in regular if r['lab']==lab),None)
+                if event and (not 'cancelled' in event.keys() or not event['cancelled']):
+                    lines.append(('Kids Lab' if lab=='kids' else 'Media Lab')+' — '+s['esc'](event['start']))
+            if lines:
+                broadcast('🎬 <b>Сегодня занятия!</b>\nПомните? '+'; '.join(lines)+'.\nДмитрий Витальевич вас ждёт. До встречи!')
         for item in list(overrides)+list(regular):
             lab=item['lab']; override=next((o for o in overrides if o['lab']==lab),None)
             if 'weekday' in item.keys() and override: continue
-            event=override if 'weekday' in item.keys() else item
+            event=item
             try: start=dt.datetime.combine(t.date(),dt.time.fromisoformat(event['start']),s['TZ'])
             except ValueError: continue
             if 0 <= (start-t).total_seconds() <= 6000 and s['claim']('lesson:'+lab+':'+event['start'],day):
