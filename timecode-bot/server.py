@@ -794,6 +794,9 @@ def polling():
     while True:
         try:
             data=api('getUpdates',{'offset':offset,'timeout':25,'allowed_updates':['message','callback_query']})
+            if not data.get('ok'):
+                time.sleep(5)
+                continue
             for update in data.get('result',[]):
                 offset=update['update_id']+1
                 try:
