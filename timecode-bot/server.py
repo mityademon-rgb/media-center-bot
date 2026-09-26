@@ -19,9 +19,12 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 import quest_engine as quests
 import screenplay_coach as screenplay
+import max_transport
 
 ROOT = Path(__file__).resolve().parent
 TOKEN = os.getenv('BOT_TOKEN', '')
+MAX_TOKEN = os.getenv('MAX_BOT_TOKEN', '')
+MAX_WEBHOOK_SECRET = os.getenv('MAX_WEBHOOK_SECRET', '')
 BASE = os.getenv('BASE_URL', '').rstrip('/')
 GROUP = os.getenv('PUBLIC_CHAT_ID', '')
 ADMINS = {int(x) for x in os.getenv('ADMIN_IDS', '').split(',') if x.strip().isdigit()}
@@ -131,6 +134,12 @@ def api(method, data=None):
     return {}
 
 def send(chat, text, keyboard=None):
+    if isinstance(chat,int) and chat<0 and MAX_TOKEN:
+        with conn() as c:
+            external=max_transport.internal_id(c,'max',-chat)
+        # MAX IDs are represented by negative internal IDs, distinct from Telegram.
+        if external is not None:
+            return max_transport.send_timecode(-chat,text,MAX_TOKEN,keyboard)
     payload = {'chat_id':chat, 'text':text, 'parse_mode':'HTML', 'disable_web_page_preview':True}
     if keyboard: payload['reply_markup'] = {'inline_keyboard':keyboard}
     return api('sendMessage', payload)
@@ -674,7 +683,7 @@ def bot_message(msg):
 def callback(q):
     uid=q.get('from',{}).get('id');data=q.get('data','');msg=q.get('message',{});cid=msg.get('chat',{}).get('id')
     if not uid or not allowed(uid):return
-    api('answerCallbackQuery',{'callback_query_id':q['id']})
+    if q['id']!='max':api('answerCallbackQuery',{'callback_query_id':q['id']})
     if data in ('onboard:lab:kids','onboard:lab:media'):
         lab=data.rsplit(':',1)[1]
         with conn() as c:c.execute('update users set lab=? where id=?',(lab,uid))
@@ -851,6 +860,48 @@ def telegram_user(raw):
         return json.loads(pairs['user'])['id']
     except (KeyError,ValueError,TypeError):return None
 
+def max_user(raw):
+    external=max_transport.verified_user(raw,MAX_TOKEN)
+    if not external:return None
+    uid=-external
+    with conn() as c:
+        max_transport.link_identity(c,'max',external,uid)
+    if not allowed(uid):roster(uid,'Участник MAX')
+    return uid
+
+def max_update(update):
+    """Process only direct messages from the authenticated MAX webhook."""
+    kind=update.get('update_type')
+    if kind=='bot_started':
+        sender=update.get('user') or {}
+        external=sender.get('user_id')
+        if type(external) is not int or external<=0:return
+        uid=-external
+        with conn() as c:max_transport.link_identity(c,'max',external,uid)
+        bot_message({'chat':{'type':'private','id':uid},'from':{'id':uid,'first_name':sender.get('name','Участник')},'text':'/start'})
+    elif kind=='message_created':
+        message=update.get('message') or {}
+        sender=message.get('sender') or {}
+        external=sender.get('user_id')
+        recipient=message.get('recipient') or {}
+        if type(external) is not int or external<=0 or recipient.get('chat_type') not in (None,'dialog'):return
+        uid=-external
+        with conn() as c:max_transport.link_identity(c,'max',external,uid)
+        bot_message({'chat':{'type':'private','id':uid},'from':{'id':uid,'first_name':sender.get('name','Участник')},'text':(message.get('body') or {}).get('text','')})
+    elif kind=='message_callback':
+        actor=update.get('user') or (update.get('callback') or {}).get('user') or {}
+        external=actor.get('user_id')
+        if type(external) is not int or external<=0:return
+        uid=-external
+        data=(update.get('callback') or {}).get('payload','')
+        if not isinstance(data,str) or not allowed(uid):return
+        # MAX callbacks are acknowledged through /answers, independently of Telegram.
+        cb=update.get('callback') or {}
+        if cb.get('callback_id'):
+            try:max_transport.api('POST','/answers?callback_id='+urllib.parse.quote(str(cb['callback_id'])),MAX_TOKEN,{})
+            except Exception:pass
+        callback({'id':'max','from':{'id':uid},'data':data,'message':{'chat':{'id':uid}}})
+
 def code_rate_limit(ip):
     instant=time.time()
     # One six-digit code is valid for five minutes. Slow down online guessing.
@@ -903,8 +954,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path=urllib.parse.urlsplit(self.path).path;p=self.body()
         if p is None:return self.out({'error':'Неверный запрос'},400)
+        if path=='/api/max/webhook':
+            if not MAX_TOKEN or not max_transport.valid_webhook_secret(self.headers.get('X-Max-Bot-Api-Secret',''),MAX_WEBHOOK_SECRET):
+                return self.out({'error':'Нет доступа'},403)
+            try:max_update(p)
+            except Exception as error:
+                print('MAX update failed:',type(error).__name__,flush=True)
+                return self.out({'error':'Обработка не удалась'},500)
+            return self.out({'ok':True})
         if path=='/api/auth':
-            uid=telegram_user(p.get('initData','')) if p.get('initData') else None
+            uid=max_user(p.get('maxInitData','')) if p.get('maxInitData') else telegram_user(p.get('initData','')) if p.get('initData') else None
             if uid is None and p.get('code'):
                 if not code_rate_limit(self.client_address[0]):return self.out({'error':'Слишком много попыток. Подождите 5 минут.'},429)
                 with conn() as c:
