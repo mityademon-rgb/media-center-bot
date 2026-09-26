@@ -54,5 +54,9 @@ class MaxIntegration(unittest.TestCase):
         self.assertFalse(server.max_transport.valid_webhook_secret('bad',server.MAX_WEBHOOK_SECRET))
         self.assertTrue(server.max_transport.valid_webhook_secret('test-webhook-secret',server.MAX_WEBHOOK_SECRET))
 
+    def test_mission_button_stays_in_max(self):
+        rows=server.max_transport.keyboard_from_telegram([[{'text':'Ответить','url':'https://t.me/timecode_bot?start=mission'}]])
+        self.assertEqual(rows[0][0]['payload'],'max:start:mission')
+
 
 if __name__=='__main__':unittest.main()
