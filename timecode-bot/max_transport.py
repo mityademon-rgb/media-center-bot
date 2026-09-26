@@ -9,6 +9,8 @@ import json
 import time
 import urllib.parse
 import urllib.request
+import os
+import ssl
 import html
 import re
 
@@ -47,7 +49,9 @@ def api(method,path,token,payload=None,*,timeout=12):
     body=json.dumps(payload,ensure_ascii=False).encode() if payload is not None else None
     request=urllib.request.Request(API+path,data=body,method=method,headers={
         'Authorization':token,'Content-Type':'application/json'})
-    with urllib.request.urlopen(request,timeout=timeout) as response:
+    ca=os.getenv('MAX_CA_FILE')
+    context=ssl.create_default_context(cafile=ca) if ca else ssl.create_default_context()
+    with urllib.request.urlopen(request,timeout=timeout,context=context) as response:
         return json.load(response)
 
 
