@@ -40,18 +40,32 @@ def install(s):
         if kind!='tip':return original_make_daily(kind)
         base=s['fallback_content']('tip')
         if not s['AI_KEY'] or not s['creative_enabled']():return base
-        prompt=('Перепиши этот проверенный практический совет для ребят 12–17 лет. '
-                'Сохрани тот же технический смысл. Заголовок: 2–5 простых слов. '
-                'Текст: ровно два коротких предложения. Сначала что сделать телефоном '
-                'или на съёмке, затем какой будет видимый или слышимый результат. '
-                'Никаких имён, фильмов, сериалов, брендов, ссылок, цитат, метафор '
-                'и слов, требующих объяснения. Не добавляй новых фактов. '
+        with s['conn']() as c:
+            previous=[r['title'] for r in c.execute("select title from daily_content where kind='tip' order by day desc limit 12")]
+        sites=s['SOURCE_SETS'][(s['now']().date()-dt.date(2026,1,1)).days%len(s['SOURCE_SETS'])]
+        query=s['ai_json']('Ты ищешь новый практический приём для школьного медиацентра: '
+                           'съёмка телефоном, запись звука, интервью, сюжет для ТВ или простой монтаж. '
+                           'Выбери тему сам, избегай уже опубликованных. Составь конкретный поисковый запрос '
+                           'на английском. JSON {"query":"..."}.',
+                           json.dumps({'previous':previous,'sites':sites},ensure_ascii=False),140) or {}
+        topic=str(query.get('query','')).strip()[:120]
+        if not topic:return base
+        found=s['industry_search'](topic,sites)
+        if not found:return base
+        prompt=('Ты автор коротких советов TIMECODE для школьников 12–17 лет, которые снимают '
+                'на телефон, делают интервью и сюжеты. На основе найденного материала '
+                'сам выбери ОДИН реально применимый приём и расскажи его простыми словами. '
+                'Заголовок 2–5 слов. Текст 2–3 коротких предложения: что конкретно сделать '
+                'и что это даст в кадре, звуке или истории. Лёгкая улыбка допустима. '
+                'Никаких имён актёров, фильмов, сериалов, брендов, внутреннего жаргона, '
+                'необъяснённых терминов и намёков, понятных только знатокам кино. '
+                'Не добавляй фактов, которых нет в найденном материале. '
                 'JSON {"title":"...","body":"..."}.')
-        drafted=s['ai_json'](prompt,base['body'],220) or {}
+        drafted=s['ai_json'](prompt,json.dumps(found,ensure_ascii=False),300) or {}
         title=str(drafted.get('title','')).strip();body=str(drafted.get('body','')).strip()
-        action=re.search(r'\b(сними|запиши|поставь|поверни|подойди|проверь|послушай|задай|оставь|выбери|сравни|включи|попробуй|сделай|подожди|начни)\b',body,re.I)
-        if 5<=len(title)<=45 and 55<=len(body)<=230 and action and body.count('.')>=2 and not any(c in body for c in '«»"'):
-            return {'title':title,'body':body,'mode':'text','source':''}
+        action=re.search(r'\b(сними|запиши|поставь|поверни|подойди|проверь|послушай|задай|оставь|выбери|сравни|включи|попробуй|сделай|подожди|начни|держи|покажи|спроси|подними)\b',body,re.I)
+        if 5<=len(title)<=45 and 55<=len(body)<=260 and action and body.count('.')>=2 and not any(c in body for c in '«»"'):
+            return {'title':title,'body':body,'mode':'text','source':found['url']}
         return base
 
     original_make_daily=s['make_daily']
@@ -108,12 +122,24 @@ def install(s):
         with s['conn']() as c:
             rows = c.execute("select u.name,m.sleep,m.mood,m.important from morning_checkins m join users u on u.id=m.user_id where m.day=? and m.step='done' and m.mood!='' order by u.name", (s['today'](),)).fetchall()
         if rows:
-            facts = [{'name':r['name'],'sleep':r['sleep'],'mood':r['mood'],'plans':r['important'][:140]} for r in rows]
-            generated = s['ai_digest']('утро', facts)
-            body = s['esc'](generated) if generated else '\n'.join('• <b>' + s['esc'](r['name']) + '</b>: ' + s['esc'](r['mood'].lower()) + ', ' + s['esc'](r['sleep'].lower()) + (('; ' + s['esc'](r['important'][:130])) if r['important'] else '') for r in rows[:12])
-            body = 'На связи ' + str(len(rows)) + '\n' + body
-        else: body = 'Пока в эфире тихо. Ждём следующего выпуска.'
-        broadcast('☀️ <b>10:00 / УТРЕННЯЯ СВОДКА TIMECODE</b>\n\n' + body)
+            facts = [{'name':r['name'],'sleep':r['sleep'],'mood':r['mood'],'plans':r['important'][:140]} for r in rows[:15]]
+            prompt=('Напиши от первого лица короткий утренний выпуск бота TIMECODE для школьного '
+                    'медиацентра. Ты прочитал ответы ребят: собери их планы и настроение '
+                    'в один живой, добрый, местами остроумный текст со вступлением, '
+                    'конкретными историями и финалом. Никаких таблиц, списков, подсчётов '
+                    'и формулировки «на связи N». Не выдумывай событий, причин настроения, '
+                    'оценок учёбы или слов участников. Не шути над человеком и не раскрывай '
+                    'личного сверх того, что он сообщил. Пиши простыми словами как знакомый '
+                    'ведущий, 250–650 знаков без HTML. JSON {"text":"..."}.')
+            drafted=s['ai_json'](prompt,json.dumps({'answers':facts},ensure_ascii=False),410) if s['AI_KEY'] else None
+            generated=str((drafted or {}).get('text','')).strip()
+            if generated and 100<=len(generated)<=850 and not re.search(r'<[^>]+>|(?:На связи|Выспались:|Настроение:)',generated,re.I):
+                body=generated
+            else:
+                plans=[r['name']+' сегодня собирается '+r['important'][:120].rstrip(' .!') for r in rows if r['important']]
+                body='Утро началось, и у меня уже есть первые новости от ребят. '+(' '.join(p+'.' for p in plans[:5]) if plans else 'Спасибо всем, кто рассказал, как начинается день.')+' Пусть сегодня найдётся хотя бы один хороший кадр.'
+        else: body='Утром в редакции пока тихо. Иногда лучший сюжет начинается как раз после паузы. Хорошего дня!'
+        broadcast('☀️ <b>УТРЕННИЙ ВЫПУСК TIMECODE</b>\n\n' + s['esc'](body))
 
     def tip():
         item = s['daily_content']('tip', True)
