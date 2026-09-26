@@ -75,7 +75,12 @@ def keyboard_from_telegram(rows):
             elif 'web_app' in button:
                 converted.append({'type':'open_app','text':label})
             elif 'url' in button:
-                converted.append({'type':'link','text':label,'url':button['url']})
+                destination=urllib.parse.urlsplit(button['url'])
+                start=urllib.parse.parse_qs(destination.query).get('start',[''])[0]
+                if destination.hostname=='t.me' and start in ('mission','instant'):
+                    converted.append({'type':'callback','text':label,'payload':'max:start:'+start})
+                elif destination.hostname!='t.me':
+                    converted.append({'type':'link','text':label,'url':button['url']})
         if converted:result.append(converted)
     return result
 
