@@ -59,7 +59,7 @@ def act(c,user_id,p,ai_json):
         question=p.get('text')
         if not isinstance(question,str) or not 2<=len(question.strip())<=1200 or step>=4:raise ValueError('Напиши вопрос Кими до 1200 знаков')
         question=question.strip()
-        history=[m for m in messages if m['step']==step][-6:]
+        history=[m for i,m in enumerate(messages) if m['step']==step and 'proposal' not in m and not (m['role']=='user' and 'proposal' in (messages[i+1] if i+1<len(messages) else {}))][-6:]
         context={'этап':STEPS[step],'задача':QUESTIONS[step],'черновики_предыдущих_этапов':drafts[:step], 'черновик_сейчас':drafts[step], 'разговор':history,'реплика_ученика':question}
         rules=(
             'ТОЛЬКО ИДЕЯ. Результат — три коротких предложения: кто герой, что случится, чем закончится. Обсуди задумку, задай один вопрос о герое, событии или финале. Не переходи к заявке, препятствиям, плану, сценам или диалогам.',
