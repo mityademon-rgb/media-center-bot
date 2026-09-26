@@ -1,0 +1,13 @@
+.home-daily-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px}
+.home-game-feature,.home-word-feature{position:relative;min-height:350px;border:1px solid rgba(181,152,255,.35);border-radius:24px;overflow:hidden}
+.home-game-feature{display:flex;align-items:flex-end;background:linear-gradient(90deg,rgba(9,7,17,.93) 0%,rgba(14,8,26,.72) 48%,rgba(15,7,26,.08) 100%),url('games-day.webp') center/cover no-repeat}
+.home-feature-content{position:relative;z-index:1;padding:clamp(24px,4vw,38px);width:min(100%,500px)}
+.home-feature-label{display:block;color:#d9c7ff;font-size:11px;font-weight:900;letter-spacing:.12em;margin-bottom:14px}
+.home-game-feature h2{font-size:clamp(30px,4vw,47px);max-width:440px;margin-bottom:15px}
+.home-game-feature p{max-width:370px;color:#e6dff2;line-height:1.5;font-size:14px;margin-bottom:22px}
+.home-word-feature{background:radial-gradient(circle at 100% 0,rgba(138,88,240,.31),transparent 53%),linear-gradient(135deg,#251e37,#17141f);padding:clamp(24px,3vw,32px);display:flex;flex-direction:column;align-items:flex-start}
+.home-word-feature .tag{color:#baa1ff}
+.home-word-icon{font-size:43px;margin:8px 0 15px}
+.home-word-feature h2{font-size:clamp(29px,3vw,39px);overflow-wrap:anywhere}
+.home-word-feature p{color:#d6cfdc;font-size:15px;line-height:1.5;flex:1}
+@media(max-width:700px){.home-daily-grid{grid-template-columns:1fr}.home-game-feature{min-height:315px;background-position:center,right center}.home-word-feature{min-height:290px}}
