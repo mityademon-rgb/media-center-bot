@@ -408,8 +408,7 @@ def morning():
 
 def checkin_open(period):
     clock=now().strftime('%H:%M')
-    if period=='am' and today()=='2026-09-26' and '10:25'<=clock<'11:20':return True
-    return ('07:30'<=clock<'09:00') if period=='am' else ('18:00'<=clock<'20:00')
+    return (('09:00'<=clock<'09:50') if now().weekday()>=5 else ('07:30'<=clock<'09:00')) if period=='am' else ('18:00'<=clock<'20:00')
 
 def offer_checkin_photo(uid,period):
     stage='morning:photo' if period=='am' else 'evening:photo'
@@ -441,11 +440,10 @@ def scheduler():
     while True:
         try:
             t=now(); clock=t.strftime('%H:%M')
-            if clock=='07:30':run_slot('morning',morning)
-            if clock=='08:30':run_slot('morning-reminder',lambda:reminder('am'))
-            if clock=='09:00':run_slot('morning-close',lambda:close_checkin('am'))
+            if clock==('09:00' if t.weekday()>=5 else '07:30'):run_slot('morning',morning)
+            if clock==('09:30' if t.weekday()>=5 else '08:30'):run_slot('morning-reminder',lambda:reminder('am'))
+            if clock==('09:50' if t.weekday()>=5 else '09:00'):run_slot('morning-close',lambda:close_checkin('am'))
             if clock=='10:00':run_slot('digest-am',lambda:digest('am'))
-            if today()=='2026-09-26' and clock=='11:25':run_slot('digest-am-recovery',lambda:digest('am'))
             if clock=='15:00':run_slot('tip',tip)
             if clock=='16:00':quest_next_episodes()
             if clock=='18:00':run_slot('evening',evening)
@@ -630,9 +628,9 @@ def bot_message(msg):
     if stage=='morning:important':
         if not checkin_open('am'):
             with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
-            send(uid,'Утренний сбор завершён в 09:00. Завтра снова увидимся!');return
+            send(uid,'Утренний сбор завершён. В 10:00 выйдет наш выпуск.');return
         if not text or text.startswith('/'):
-            send(uid,'Напиши одной фразой, что сегодня важного, или нажми «Пропустить».',[[{'text':'Пропустить','callback_data':'morning:important:skip'}]]);return
+            send(uid,'Напиши одной фразой, что тебя сегодня волнует или радует. Можно пропустить.',[[{'text':'Пропустить','callback_data':'morning:important:skip'}]]);return
         with conn() as c:
             row=c.execute('select step from morning_checkins where user_id=? and day=?',(uid,today())).fetchone()
             if not row or row['step']!='important':return
@@ -710,7 +708,7 @@ def callback(q):
         return
     if data.startswith('morning:'):
         if not checkin_open('am'):
-            send(uid,'Утренние ответы принимаю с 07:30 до 09:00.');return
+            send(uid,'Утренние ответы принимаю с 09:00 до 09:50 в выходные и с 07:30 до 09:00 в будни.');return
         parts=data.split(':',2); action=parts[1] if len(parts)>1 else '';value=parts[2] if len(parts)>2 else ''
         if action=='start':
             send(uid,'Как спалось?',[[{'text':'😌 Выспался','callback_data':'morning:sleep:Выспался'},{'text':'😐 Так себе','callback_data':'morning:sleep:Так себе'}],[{'text':'🥱 Мало спал','callback_data':'morning:sleep:Мало спал'},{'text':'Пропустить','callback_data':'morning:skip'}]]);return
@@ -730,7 +728,7 @@ def callback(q):
                 if not row or row['step']!='mood':return
                 c.execute("update morning_checkins set mood=?,step='important' where user_id=? and day=?",(value,uid,today()))
                 c.execute("update users set stage='morning:important' where id=?",(uid,))
-            send(uid,'<b>3/3. Что сегодня важного?</b> Одной фразой, если хочешь.',[[{'text':'Пропустить','callback_data':'morning:important:skip'}]]);return
+            send(uid,'<b>3/3. Что тебя сегодня волнует или радует?</b> Одной фразой, если хочешь.',[[{'text':'Пропустить','callback_data':'morning:important:skip'}]]);return
         if action=='important' and value=='skip':
             with conn() as c:
                 row=c.execute('select step from morning_checkins where user_id=? and day=?',(uid,today())).fetchone()
