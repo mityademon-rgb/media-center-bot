@@ -951,9 +951,18 @@ class Handler(BaseHTTPRequestHandler):
             personal_mission=((mission_item['body_media'] if u['lab']=='media' else mission_item['body_kids']) or mission_item['body']) if mission_item else ''
             with conn() as c:campaigns=quests.state(c,u['id'],u['lab'],u['role']=='admin',today())
             return self.out({'quests':campaigns,'me':{'id':u['id'],'name':u['name'],'lab':u['lab'],'role':u['role'],'enabled':bool(u['enabled'])},'lessons':lessons,'changes':changes,'progress':progress,'latest':latest,'tip':[tip_item['title'],tip_item['body']] if tip_item else None,'mission':[mission_item['title'],personal_mission,mission_item['mode']] if mission_item else None,'date':today(),'bot':BOTNAME})
-        if path not in ('/','/app.js','/style.css','/framequest.js','/framequest.css','/nightshift.js','/nightshift.css','/terms-memory.js','/terms-memory.css','/arcade.js','/arcade.css','/glossary.js','/glossary.css','/home-discovery.js','/home-discovery.css','/games-day.webp','/screenplay.js','/screenplay.css'):return self.out({'error':'Не найдено'},404)
+        if path not in ('/','/app.js','/style.css','/framequest.js','/framequest.css','/nightshift.js','/nightshift.css','/terms-memory.js','/terms-memory.css','/arcade.js','/arcade.css','/glossary.js','/glossary.css','/home-discovery.js','/home-discovery.css','/games-day.webp','/screenplay.js','/screenplay.css','/intro.js','/intro.css','/intro.mp4'):return self.out({'error':'Не найдено'},404)
         file=ROOT/'static'/('index.html' if path=='/' else path[1:]);blob=file.read_bytes()
-        self.send_response(200);self.send_header('Content-Type',{'html':'text/html; charset=utf-8','js':'text/javascript; charset=utf-8','css':'text/css; charset=utf-8','webp':'image/webp'}[file.suffix[1:]]);self.send_header('Content-Length',str(len(blob)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(blob)
+        if path=='/intro.mp4':
+            match=re.fullmatch(r'bytes=(\d+)-(\d*)',self.headers.get('Range',''))
+            if match:
+                start=int(match[1]);end=min(int(match[2]),len(blob)-1) if match[2] else len(blob)-1
+                if start>=len(blob) or end<start:
+                    self.send_response(416);self.send_header('Content-Range','bytes */'+str(len(blob)));self.end_headers();return
+                self.send_response(206);self.send_header('Content-Type','video/mp4');self.send_header('Accept-Ranges','bytes')
+                self.send_header('Content-Range',f'bytes {start}-{end}/{len(blob)}');self.send_header('Content-Length',str(end-start+1))
+                self.send_header('Cache-Control','public, max-age=86400');self.end_headers();self.wfile.write(blob[start:end+1]);return
+        self.send_response(200);self.send_header('Content-Type',{'html':'text/html; charset=utf-8','js':'text/javascript; charset=utf-8','css':'text/css; charset=utf-8','webp':'image/webp','mp4':'video/mp4'}[file.suffix[1:]]);self.send_header('Content-Length',str(len(blob)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(blob)
     def do_POST(self):
         path=urllib.parse.urlsplit(self.path).path;p=self.body()
         if p is None:return self.out({'error':'Неверный запрос'},400)
