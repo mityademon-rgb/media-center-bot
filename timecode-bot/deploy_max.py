@@ -18,6 +18,7 @@ replace_unique(live,"TOKEN = os.getenv('BOT_TOKEN', '')\n", "TOKEN = os.getenv('
 start='def send(chat, text, keyboard=None):\n'; end="    payload = {'chat_id':chat, 'text':text, 'parse_mode':'HTML'"
 replace_unique(live,start+end,new[new.index(start):new.index(end,new.index(start))]+end)
 replace_unique(live,"    api('answerCallbackQuery',{'callback_query_id':q['id']})", "    if q['id']!='max':api('answerCallbackQuery',{'callback_query_id':q['id']})")
+replace_unique(live,"    if data in ('onboard:lab:kids','onboard:lab:media'):\n", new[new.index("    if q['id']=='max' and data in ('max:start:mission','max:start:instant'):"):new.index("    if data in ('onboard:lab:kids','onboard:lab:media'):")]+"    if data in ('onboard:lab:kids','onboard:lab:media'):\n")
 start='def max_user(raw):\n';end='def code_rate_limit(ip):\n'
 replace_unique(live,end,new[new.index(start):new.index(end,new.index(start))]+end)
 start="        if path=='/api/max/webhook':\n";end="        if path=='/api/auth':\n"
