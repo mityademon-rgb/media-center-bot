@@ -407,7 +407,14 @@ def morning():
 
 def checkin_open(period):
     clock=now().strftime('%H:%M')
+    if period=='am' and today()=='2026-09-26' and '10:25'<=clock<'11:20':return True
     return ('07:30'<=clock<'09:00') if period=='am' else ('18:00'<=clock<'20:00')
+
+def offer_checkin_photo(uid,period):
+    stage='morning:photo' if period=='am' else 'evening:photo'
+    with conn() as c:c.execute('update users set stage=? where id=?',(stage,uid))
+    label='утра' if period=='am' else 'дня'
+    send(uid,'📸 Хочешь добавить один кадр своего '+label+'? Пришли фото сюда — покажу его вместе с выпуском всем подписчикам и в подключённом чате взрослых. Если в кадре люди, сначала спроси их согласия. Можно пропустить.',[[{'text':'Без фото','callback_data':stage+':skip'}]])
 
 def reminder(period):
     table='morning_checkins' if period=='am' else 'evening_checkins'
@@ -437,6 +444,7 @@ def scheduler():
             if clock=='08:30':run_slot('morning-reminder',lambda:reminder('am'))
             if clock=='09:00':run_slot('morning-close',lambda:close_checkin('am'))
             if clock=='10:00':run_slot('digest-am',lambda:digest('am'))
+            if today()=='2026-09-26' and clock=='11:25':run_slot('digest-am-recovery',lambda:digest('am'))
             if clock=='15:00':run_slot('tip',tip)
             if clock=='16:00':quest_next_episodes()
             if clock=='18:00':run_slot('evening',evening)
@@ -596,6 +604,18 @@ def bot_message(msg):
         with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
         return
     photo=msg.get('photo',[])[-1]['file_id'] if msg.get('photo') else ''
+    if stage in ('morning:photo','evening:photo'):
+        period='am' if stage.startswith('morning:') else 'pm'
+        if not checkin_open(period):
+            with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
+            send(uid,'Приём кадров к этому выпуску завершён.');return
+        if not photo:
+            send(uid,'Пришли одно фото или нажми «Без фото».',[[{'text':'Без фото','callback_data':stage+':skip'}]]);return
+        table='morning_checkins' if period=='am' else 'evening_checkins'
+        with conn() as c:
+            c.execute('update '+table+" set photo=? where user_id=? and day=? and step='done'",(photo,uid,today()))
+            c.execute("update users set stage='' where id=?",(uid,))
+        send(uid,'📸 Кадр принят. Добавлю его к общему выпуску.');return
     if stage=='instant':
         if now().weekday() not in (1,4) or not '16:00'<=now().strftime('%H:%M')<'20:00':
             with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
@@ -616,8 +636,7 @@ def bot_message(msg):
             row=c.execute('select step from morning_checkins where user_id=? and day=?',(uid,today())).fetchone()
             if not row or row['step']!='important':return
             c.execute("update morning_checkins set important=?,step='done',visible=1 where user_id=? and day=?",(text[:160],uid,today()))
-            c.execute("update users set stage='' where id=?",(uid,))
-        send(uid,'Спасибо! Утренняя сводка появится в 10:00.');return
+        offer_checkin_photo(uid,'am');return
     if stage=='mission':
         if not photo and not text:send(uid,'Пришли фото или короткую фразу.');return
         kind=daily_content('mission')['mode']
@@ -716,8 +735,10 @@ def callback(q):
                 row=c.execute('select step from morning_checkins where user_id=? and day=?',(uid,today())).fetchone()
                 if not row or row['step']!='important':return
                 c.execute("update morning_checkins set step='done',visible=1 where user_id=? and day=?",(uid,today()))
-                c.execute("update users set stage='' where id=?",(uid,))
-            send(uid,'Спасибо! Утренняя сводка появится в 10:00.');return
+            offer_checkin_photo(uid,'am');return
+        if action=='photo' and value=='skip':
+            with conn() as c:c.execute("update users set stage='' where id=? and stage='morning:photo'",(uid,))
+            send(uid,'Принято. Утренняя сводка выйдет после переклички.');return
         return
     if data.startswith('evening:'):
         if not checkin_open('pm'):
@@ -763,8 +784,11 @@ def callback(q):
                 row=c.execute('select step from evening_checkins where user_id=? and day=?',(uid,today())).fetchone()
                 if not row or row['step']!='satisfied':return
                 c.execute("update evening_checkins set satisfied=?,step='done',visible=1 where user_id=? and day=?",(value,uid,today()))
-            send(uid,'Спасибо! Вечерняя сводка появится в 20:30.')
+            offer_checkin_photo(uid,'pm')
             return
+        if action=='photo' and value=='skip':
+            with conn() as c:c.execute("update users set stage='' where id=? and stage='evening:photo'",(uid,))
+            send(uid,'Принято. Вечерний выпуск выйдет в 20:30.');return
         return
 
 def photos_digest():
@@ -867,9 +891,9 @@ class Handler(BaseHTTPRequestHandler):
             personal_mission=((mission_item['body_media'] if u['lab']=='media' else mission_item['body_kids']) or mission_item['body']) if mission_item else ''
             with conn() as c:campaigns=quests.state(c,u['id'],u['lab'],u['role']=='admin',today())
             return self.out({'quests':campaigns,'me':{'id':u['id'],'name':u['name'],'lab':u['lab'],'role':u['role'],'enabled':bool(u['enabled'])},'lessons':lessons,'changes':changes,'progress':progress,'latest':latest,'tip':[tip_item['title'],tip_item['body']] if tip_item else None,'mission':[mission_item['title'],personal_mission,mission_item['mode']] if mission_item else None,'date':today(),'bot':BOTNAME})
-        if path not in ('/','/app.js','/style.css','/framequest.js','/framequest.css','/nightshift.js','/nightshift.css','/terms-memory.js','/terms-memory.css','/arcade.js','/arcade.css','/glossary.js','/glossary.css'):return self.out({'error':'Не найдено'},404)
+        if path not in ('/','/app.js','/style.css','/framequest.js','/framequest.css','/nightshift.js','/nightshift.css','/terms-memory.js','/terms-memory.css','/arcade.js','/arcade.css','/glossary.js','/glossary.css','/home-discovery.js','/home-discovery.css','/games-day.webp'):return self.out({'error':'Не найдено'},404)
         file=ROOT/'static'/('index.html' if path=='/' else path[1:]);blob=file.read_bytes()
-        self.send_response(200);self.send_header('Content-Type',{'html':'text/html','js':'text/javascript','css':'text/css'}[file.suffix[1:]]+'; charset=utf-8');self.send_header('Content-Length',str(len(blob)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(blob)
+        self.send_response(200);self.send_header('Content-Type',{'html':'text/html; charset=utf-8','js':'text/javascript; charset=utf-8','css':'text/css; charset=utf-8','webp':'image/webp'}[file.suffix[1:]]);self.send_header('Content-Length',str(len(blob)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(blob)
     def do_POST(self):
         path=urllib.parse.urlsplit(self.path).path;p=self.body()
         if p is None:return self.out({'error':'Неверный запрос'},400)
