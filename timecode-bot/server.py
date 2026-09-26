@@ -684,6 +684,9 @@ def callback(q):
     uid=q.get('from',{}).get('id');data=q.get('data','');msg=q.get('message',{});cid=msg.get('chat',{}).get('id')
     if not uid or not allowed(uid):return
     if q['id']!='max':api('answerCallbackQuery',{'callback_query_id':q['id']})
+    if q['id']=='max' and data in ('max:start:mission','max:start:instant'):
+        bot_message({'chat':{'id':uid,'type':'private'},'from':{'id':uid},'text':'/start '+data.rsplit(':',1)[1]})
+        return
     if data in ('onboard:lab:kids','onboard:lab:media'):
         lab=data.rsplit(':',1)[1]
         with conn() as c:c.execute('update users set lab=? where id=?',(lab,uid))
