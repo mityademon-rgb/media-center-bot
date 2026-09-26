@@ -20,6 +20,17 @@ def install(s):
         for chat in destinations():
             s['send'](chat, message, keyboard)
 
+    def broadcast_checkin_photos(rows):
+        photos=[{'photo':r['photo'],'name':r['name']} for r in rows if r['photo']]
+        for chat in destinations():
+            for start in range(0,len(photos),10):
+                batch=photos[start:start+10]
+                if len(batch)>1:
+                    media=[{'type':'photo','media':r['photo'],'caption':'📸 Кадр от '+r['name'][:75]} for r in batch]
+                    s['api']('sendMediaGroup',{'chat_id':chat,'media':media})
+                elif batch:
+                    s['api']('sendPhoto',{'chat_id':chat,'photo':batch[0]['photo'],'caption':'📸 Кадр от '+batch[0]['name'][:75]})
+
     def publish_to_all(msg, body):
         """Send a teacher's message or Telegram media to every enrolled user and the adult chat."""
         with s['conn']() as c:
@@ -90,7 +101,7 @@ def install(s):
     def digest(period):
         if period == 'pm':
             with s['conn']() as c:
-                rows = c.execute("select u.name,e.mood,e.highlight,e.satisfied from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.step='done' and e.mood!='' order by u.name", (s['today'](),)).fetchall()
+                rows = c.execute("select u.name,e.mood,e.highlight,e.satisfied,e.photo from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.step='done' and e.mood!='' order by u.name", (s['today'](),)).fetchall()
             if rows:
                 facts=[{'name':r['name'],'mood':r['mood'],'highlight':r['highlight'][:140],
                         'satisfied':r['satisfied']} for r in rows[:15]]
@@ -118,9 +129,10 @@ def install(s):
                     body+=' На этом съёмочный день закрыт. '+('Хороших выходных!' if weekday==4 else 'Хорошего вечера!')
             else: body='Сегодня в редакции тихо. Даже самые разговорчивые герои иногда уходят за кадр. Хорошего вечера!'
             broadcast('🌙 <b>КАК ПРОШЁЛ ДЕНЬ</b>\n\n' + s['esc'](body))
+            broadcast_checkin_photos(rows)
             return
         with s['conn']() as c:
-            rows = c.execute("select u.name,m.sleep,m.mood,m.important from morning_checkins m join users u on u.id=m.user_id where m.day=? and m.step='done' and m.mood!='' order by u.name", (s['today'](),)).fetchall()
+            rows = c.execute("select u.name,m.sleep,m.mood,m.important,m.photo from morning_checkins m join users u on u.id=m.user_id where m.day=? and m.step='done' and m.mood!='' order by u.name", (s['today'](),)).fetchall()
         if rows:
             facts = [{'name':r['name'],'sleep':r['sleep'],'mood':r['mood'],'plans':r['important'][:140]} for r in rows[:15]]
             prompt=('Напиши от первого лица короткий утренний выпуск бота TIMECODE для школьного '
@@ -140,6 +152,7 @@ def install(s):
                 body='Утро началось, и у меня уже есть первые новости от ребят. '+(' '.join(p+'.' for p in plans[:5]) if plans else 'Спасибо всем, кто рассказал, как начинается день.')+' Пусть сегодня найдётся хотя бы один хороший кадр.'
         else: body='Утром в редакции пока тихо. Иногда лучший сюжет начинается как раз после паузы. Хорошего дня!'
         broadcast('☀️ <b>УТРЕННИЙ ВЫПУСК TIMECODE</b>\n\n' + s['esc'](body))
+        broadcast_checkin_photos(rows)
 
     def tip():
         item = s['daily_content']('tip', True)
