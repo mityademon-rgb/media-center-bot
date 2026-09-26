@@ -6,9 +6,7 @@ import re
 
 
 def install(s):
-    original_morning=s['morning']
     original_evening=s['evening']
-    original_reminder=s['reminder']
     def audience():
         with s['conn']() as c:
             return [r['id'] for r in c.execute('select id from users where enabled=1')]
@@ -81,10 +79,37 @@ def install(s):
 
     original_make_daily=s['make_daily']
 
+    def day_label():
+        t=s['now']()
+        months=('января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря')
+        return str(t.day)+' '+months[t.month-1]
+
     def morning():
-        original_morning()
-        if s['GROUP']:
-            s['send'](s['GROUP'],'☀️ <b>07:30 / ДОБРОЕ УТРО!</b>\nКак спалось, как дела и что сегодня важного? Ответить можно лично боту до 09:00.')
+        weekend=s['now']().weekday()>=5
+        at='09:00' if weekend else '07:30'
+        close='09:50' if weekend else '09:00'
+        editorial=('Ты Кими, ведущий школьного медиацентра TIMECODE. Напиши одну короткую '
+                   'остроумную утреннюю реплику для школьников и взрослых. Представь, что '
+                   'заглянул в шуточный гороскоп съёмочной группы: звёзды обещают отличный '
+                   'день для конкретного смешного творческого действия. Это шутка, '
+                   'не настоящий прогноз. Одна мысль, не больше 200 знаков; без '
+                   'банальностей, предсказаний о личной жизни и упоминания вымышленных '
+                   'ответов детей. Верни JSON {"text":"..."}.')
+        created=s['ai_json'](editorial,json.dumps({'date':day_label(),'weekend':weekend},ensure_ascii=False),140) if s['AI_KEY'] else None
+        line=str((created or {}).get('text','')).strip()
+        if not 25<=len(line)<=220 or re.search(r'<[^>]+>',line):
+            line='Заглянул в гороскоп съёмочной группы: звёзды обещают удачный день тому, кто наконец нажмёт REC, а не будет репетировать на словах.'
+        text=('☀️ <b>'+at+' / ДОБРОЕ УТРО'+(' ВЫХОДНОГО ДНЯ' if weekend else '')+'!</b>\n'
+              '<b>'+day_label()+'.</b> '+s['esc'](line)+'\n\n'
+              'Впереди наша перекличка. Расскажи, как проснулся и что тебя сегодня волнует. '
+              'Пришли фото своего утра, если хочешь: в 10:00 соберу ваши ответы и кадры '
+              'в один рассказ. В 15:00 вернусь с лайфхаком. Ответы принимаю до '+close+'.')
+        keyboard=[[{'text':'😌 Выспался','callback_data':'morning:sleep:Выспался'},
+                   {'text':'😐 Так себе','callback_data':'morning:sleep:Так себе'}],
+                  [{'text':'🥱 Мало спал','callback_data':'morning:sleep:Мало спал'},
+                   {'text':'Пропустить','callback_data':'morning:skip'}]]
+        for uid in audience():s['send'](uid,text,keyboard)
+        if s['GROUP']:s['send'](s['GROUP'],text)
 
     def evening():
         original_evening()
@@ -92,66 +117,60 @@ def install(s):
             s['send'](s['GROUP'],'🌙 <b>18:00 / ВЕЧЕРНЯЯ ПЕРЕКЛИЧКА</b>\nКак прошёл день? Ответить можно лично боту до 20:00.')
 
     def reminder(period):
+        if period=='am':
+            close='09:50' if s['now']().weekday()>=5 else '09:00'
+            at='09:30' if s['now']().weekday()>=5 else '08:30'
+            with s['conn']() as c:
+                users=c.execute("select u.id from users u left join morning_checkins m on m.user_id=u.id and m.day=? where u.enabled=1 and (m.step is null or m.step not in ('done','closed'))",(s['today'](),)).fetchall()
+            message='⏱ <b>'+at+' / УТРЕННЯЯ ПЕРЕКЛИЧКА</b>\nЕщё можно рассказать о своём утре и прислать фото. Жду до '+close+', в 10:00 соберу истории в выпуск.'
+            for u in users:s['send'](u['id'],message,[[{'text':'Ответить боту','callback_data':'morning:start'}]])
+            if s['GROUP']:s['send'](s['GROUP'],message)
+            return
         original_reminder(period)
         if s['GROUP']:
-            when='08:30 / УТРО' if period=='am' else '19:00 / ВЕЧЕР'
-            end='09:00' if period=='am' else '20:00'
-            s['send'](s['GROUP'],'⏱ <b>'+when+'</b>\nЕсли хотел ответить боту — приём до '+end+'.')
+            s['send'](s['GROUP'],'⏱ <b>19:00 / ВЕЧЕР</b>\nЕсли хотел ответить боту — приём до 20:00.')
 
     def digest(period):
-        if period == 'pm':
-            with s['conn']() as c:
-                rows = c.execute("select u.name,e.mood,e.highlight,e.satisfied,e.photo from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.step='done' and e.mood!='' order by u.name", (s['today'](),)).fetchall()
-            if rows:
-                facts=[{'name':r['name'],'mood':r['mood'],'highlight':r['highlight'][:140],
-                        'satisfied':r['satisfied']} for r in rows[:15]]
-                weekday=s['now']().weekday()
-                prompt=('Напиши короткий остроумный вечерний выпуск школьного медиацентра. '
-                        'Говори как добрый редактор, который прочитал ответы ребят: вступление, '
-                        'истории конкретных участников, один вывод и финальное пожелание. '
-                        'Не делай список, отчёт, подсчёт голосов или табличную сводку. '
-                        'Обращайся к участникам по их именам без переименования. '
-                        'Цитируй их достижения только по смыслу, не придумывай подробностей '
-                        'и не делай выводов об оценках, здоровье, семье или причинах настроения. '
-                        'Улыбка над ситуацией допустима, над ребёнком — нет. '
-                        'Если сегодня пятница, пожелай хороших выходных; иначе пожелай хорошего вечера. '
-                        'Длина 300–650 знаков, обычный текст без разметки. '
-                        'JSON {"text":"..."}.')
-                draft=s['ai_json'](prompt,json.dumps({'weekday':weekday,'answers':facts},ensure_ascii=False),400) if s['AI_KEY'] else None
-                generated=str((draft or {}).get('text','')).strip()
-                names=[r['name'] for r in rows if r['highlight'] and r['highlight']!='Не было']
-                if generated and 120<=len(generated)<=900 and not re.search(r'<[^>]+>|(?:На связи|Хороший день:|Довольны днём:)',generated,re.I) and all(name in generated for name in names[:4]):
-                    body=generated
-                else:
-                    intro='На мою просьбу рассказать о дне откликнулись самые смелые. Снимаю шляпу.' if len(rows)<4 else 'Сегодня в редакцию прилетели новости от наших героев.'
-                    highlights=[r['name']+': «'+r['highlight'][:140].rstrip(' .!')+'». ' for r in rows if r['highlight'] and r['highlight']!='Не было']
-                    body=intro+' '+(' '.join(highlights[:5]) if highlights else 'Не каждый день обязан быть премьерой: спасибо всем, кто был на связи.')
-                    body+=' На этом съёмочный день закрыт. '+('Хороших выходных!' if weekday==4 else 'Хорошего вечера!')
-            else: body='Сегодня в редакции тихо. Даже самые разговорчивые герои иногда уходят за кадр. Хорошего вечера!'
-            broadcast('🌙 <b>КАК ПРОШЁЛ ДЕНЬ</b>\n\n' + s['esc'](body))
-            broadcast_checkin_photos(rows)
-            return
+        morning=period!='pm'
         with s['conn']() as c:
-            rows = c.execute("select u.name,m.sleep,m.mood,m.important,m.photo from morning_checkins m join users u on u.id=m.user_id where m.day=? and m.step='done' and m.mood!='' order by u.name", (s['today'](),)).fetchall()
-        if rows:
-            facts = [{'name':r['name'],'sleep':r['sleep'],'mood':r['mood'],'plans':r['important'][:140]} for r in rows[:15]]
-            prompt=('Напиши от первого лица короткий утренний выпуск бота TIMECODE для школьного '
-                    'медиацентра. Ты прочитал ответы ребят: собери их планы и настроение '
-                    'в один живой, добрый, местами остроумный текст со вступлением, '
-                    'конкретными историями и финалом. Никаких таблиц, списков, подсчётов '
-                    'и формулировки «на связи N». Не выдумывай событий, причин настроения, '
-                    'оценок учёбы или слов участников. Не шути над человеком и не раскрывай '
-                    'личного сверх того, что он сообщил. Пиши простыми словами как знакомый '
-                    'ведущий, 250–650 знаков без HTML. JSON {"text":"..."}.')
-            drafted=s['ai_json'](prompt,json.dumps({'answers':facts},ensure_ascii=False),410) if s['AI_KEY'] else None
-            generated=str((drafted or {}).get('text','')).strip()
-            if generated and 100<=len(generated)<=850 and not re.search(r'<[^>]+>|(?:На связи|Выспались:|Настроение:)',generated,re.I):
-                body=generated
+            if morning:
+                rows=c.execute("select u.name,m.sleep,m.mood,m.important,m.photo from morning_checkins m join users u on u.id=m.user_id where m.day=? and m.step='done' and m.mood!='' order by u.name",(s['today'](),)).fetchall()
             else:
-                plans=[r['name']+' сегодня собирается '+r['important'][:120].rstrip(' .!') for r in rows if r['important']]
-                body='Утро началось, и у меня уже есть первые новости от ребят. '+(' '.join(p+'.' for p in plans[:5]) if plans else 'Спасибо всем, кто рассказал, как начинается день.')+' Пусть сегодня найдётся хотя бы один хороший кадр.'
-        else: body='Утром в редакции пока тихо. Иногда лучший сюжет начинается как раз после паузы. Хорошего дня!'
-        broadcast('☀️ <b>УТРЕННИЙ ВЫПУСК TIMECODE</b>\n\n' + s['esc'](body))
+                rows=c.execute("select u.name,e.mood,e.highlight,e.satisfied,e.photo from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.step='done' and e.mood!='' order by u.name",(s['today'](),)).fetchall()
+        facts=([{'name':r['name'],'sleep':r['sleep'],'mood':r['mood'],'words':r['important'][:150]} for r in rows[:12]] if morning else
+               [{'name':r['name'],'mood':r['mood'],'words':r['highlight'][:150],'satisfied':r['satisfied']} for r in rows[:12]])
+        story_prompt=('Ты Кими, ведущий школьного медиацентра TIMECODE. Ты пишешь ОДИН связный мини-рассказ от первого лица бота по реальным ответам детей, а не статистику. '
+                      'Сначала интересный заход, затем вплети конкретные ответы участников с именами в общую историю, свяжи их переходами и закончи живой фразой. '
+                      'История должна двигаться, как маленькая редакционная колонка: никакого списка, пунктов, сухого пересказа анкет, подсчётов, повторения вопроса и заголовков внутри текста. '
+                      'Используй только переданные факты, не дописывай события, причины настроения, оценки, слова детей или содержание фото. '
+                      'Шути над обстоятельствами и собственной ролью ведущего, но не над детьми; не приписывай детям негативных поступков. '
+                      +('Сегодня утренний выпуск. В финале ОБЯЗАТЕЛЬНО пообещай вернуться с простым лайфхаком в 15:00. ' if morning else
+                        'Сегодня вечерний выпуск. Закончи пожеланием хорошего вечера или выходных, если пятница. ')+
+                      'Текст 300–650 знаков, без HTML и Markdown. Верни JSON {"text":"..."}.')
+        drafted=s['ai_json'](story_prompt,json.dumps({'date':day_label(),'weekday':s['now']().weekday(),'answers':facts},ensure_ascii=False),500) if rows and s['AI_KEY'] else None
+        generated=str((drafted or {}).get('text','')).strip()
+        named=[r['name'] for r in rows if (r['important'] if morning else r['highlight']) and (r['important'] if morning else r['highlight'])!='Не было']
+        bad_format=re.search(r'<[^>]+>|(?:^|\n)\s*(?:[•*\-]|\d+[.)])|(?:На связи|Выспались:|Настроение:|Довольны днём:)',generated,re.I)
+        if generated and 180<=len(generated)<=850 and not bad_format and all(name in generated for name in named[:5]):
+            body=generated
+            if morning and '15:00' not in body:body+=' В 15:00 вернусь с лайфхаком.'
+        elif rows:
+            if morning:
+                opening='Сегодня утро у всех началось по-своему. '
+                details=[r['name']+' поделился(ась) планом: '+r['important'][:120].rstrip(' .!')+'.' for r in rows if r['important']]
+                if not details:details=[r['name']+' рассказал(а), что настроение сегодня '+r['mood'].lower()+'.' for r in rows[:4]]
+                ending=' Спасибо за откровенность и за кадры утра. В 15:00 вернусь с простым лайфхаком.'
+            else:
+                opening='Вечер собрал сегодня несколько очень разных историй. '
+                details=[r['name']+' рассказал(а): '+r['highlight'][:120].rstrip(' .!')+'.' for r in rows if r['highlight'] and r['highlight']!='Не было']
+                if not details:details=['Ребята поделились настроением дня — и это уже повод закончить его вместе.']
+                ending=' Спасибо всем, кто был на связи. '+('Хороших выходных!' if s['now']().weekday()==4 else 'Хорошего вечера!')
+            body=opening+' '.join(details[:6])+ending
+        else:
+            body=('Утром в редакции пока тихо. Даже хорошие истории иногда начинаются с паузы. В 15:00 вернусь с лайфхаком.' if morning else
+                  'Сегодня у микрофона было тихо. Ничего страшного: иногда лучший кадр остаётся за экраном. Хорошего вечера!')
+        label=('☀️ <b>10:00 / ИСТОРИИ ЭТОГО УТРА</b>\n\n' if morning else '🌙 <b>20:30 / КАК ПРОШЁЛ ДЕНЬ</b>\n\n')
+        broadcast(label+s['esc'](body))
         broadcast_checkin_photos(rows)
 
     def tip():
