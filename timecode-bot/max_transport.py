@@ -9,6 +9,8 @@ import json
 import time
 import urllib.parse
 import urllib.request
+import html
+import re
 
 API = 'https://platform-api2.max.ru'
 
@@ -57,6 +59,33 @@ def send_text(user_id,text,token,*,keyboard=None):
     return api('POST','/messages?user_id='+str(user_id),token,body)
 
 
+def keyboard_from_telegram(rows):
+    """Convert the existing TIMECODE buttons to MAX buttons."""
+    result=[]
+    for row in rows or []:
+        converted=[]
+        for button in row:
+            label=button.get('text','')
+            if 'callback_data' in button:
+                converted.append({'type':'callback','text':label,'payload':button['callback_data']})
+            elif 'web_app' in button:
+                converted.append({'type':'open_app','text':label})
+            elif 'url' in button:
+                converted.append({'type':'link','text':label,'url':button['url']})
+        if converted:result.append(converted)
+    return result
+
+
+def send_timecode(user_id,text,token,keyboard=None):
+    """Match the Telegram send() result shape used by the delivery code."""
+    try:
+        response=send_text(user_id,text,token,keyboard=keyboard_from_telegram(keyboard))
+        return {'ok':True,'result':response.get('message',response)}
+    except Exception as error:
+        print('MAX send failed:',type(error).__name__,flush=True)
+        return {'ok':False}
+
+
 def ensure_identity_table(c):
     c.execute('''create table if not exists messenger_identities (
         platform text not null, external_id text not null, user_id integer not null,
@@ -73,7 +102,7 @@ def internal_id(c,platform,external_id):
 
 def link_identity(c,platform,external_id,user_id):
     """Call only after the signed launch and TIMECODE invitation have both been checked."""
-    if platform not in ('max','telegram') or type(user_id) is not int or user_id<=0:
+    if platform not in ('max','telegram') or type(user_id) is not int or user_id==0:
         raise ValueError('Invalid identity')
     ensure_identity_table(c)
     existing=internal_id(c,platform,external_id)
