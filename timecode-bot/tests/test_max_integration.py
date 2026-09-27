@@ -58,5 +58,21 @@ class MaxIntegration(unittest.TestCase):
         rows=server.max_transport.keyboard_from_telegram([[{'text':'Ответить','url':'https://t.me/timecode_bot?start=mission'}]])
         self.assertEqual(rows[0][0]['payload'],'max:start:mission')
 
+    def test_max_photo_during_checkin_is_accepted_once(self):
+        server.roster(-63,'Ученик MAX')
+        with server.conn() as c:
+            c.execute("insert into morning_checkins(user_id,day,step) values(?,?,'done')",(-63,server.today()))
+            c.execute("update users set stage='morning:photo' where id=-63")
+        update={'update_type':'message_created','message':{
+            'sender':{'user_id':63,'name':'Ученик MAX'},'recipient':{'chat_type':'dialog'},
+            'body':{'mid':'photo-1','attachments':[{'type':'image','payload':{'token':'image-token'}}]}}}
+        with patch.object(server,'checkin_open',return_value=True), patch.object(server,'send') as sent:
+            server.max_update(update)
+            server.max_update(update)
+        with server.conn() as c:
+            self.assertEqual(c.execute('select photo from morning_checkins where user_id=-63').fetchone()['photo'],'max:image:image-token')
+        self.assertIn('Кадр принят',sent.call_args_list[0].args[1])
+        self.assertFalse(any('Пришли одно фото' in c.args[1] for c in sent.call_args_list))
+
 
 if __name__=='__main__':unittest.main()
