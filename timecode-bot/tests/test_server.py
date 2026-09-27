@@ -220,6 +220,29 @@ class BotTests(unittest.TestCase):
                 self.assertIn('Попробуй ещё раз',server.chat_reply('Как снять интервью?'))
         finally:server.AI_KEY=old
 
+    def test_weekly_survey_runs_three_steps_and_notifies_admin(self):
+        with patch.object(server,'api',return_value={'ok':True}), patch.object(server,'send',return_value={'ok':True}) as sent:
+            server.callback({'id':'callback','from':{'id':42},'data':'weekly:start','message':{'chat':{'id':42}}})
+            for reply in ('Сняли репортаж','Хочу узнать про монтаж','Нужна раскадровка'):
+                server.bot_message({'chat':{'type':'private'},'from':{'id':42},'text':reply})
+        with server.conn() as c:
+            row=c.execute('select * from weekly_surveys where user_id=42 and week=?',(server.survey_week(),)).fetchone()
+        self.assertEqual(row['step'],'done')
+        self.assertEqual(row['feature'],'Нужна раскадровка')
+        self.assertTrue(any(c.args[0]==11 and 'Нужна раскадровка' in c.args[1] for c in sent.call_args_list))
+
+    def test_daily_photo_is_taken_once_and_published_immediately(self):
+        photo={'photo':[{'file_id':'tg-photo-id'}]}
+        with patch.object(server.threading,'Thread') as worker, patch.object(server,'send',return_value={'ok':True}):
+            server.accept_daily_photo(42,photo)
+            server.accept_daily_photo(42,photo)
+        self.assertEqual(worker.call_count,1)
+        with patch.object(server,'photo_comment',return_value='Свет мягкий и лицо читается. Фон успел причесаться раньше героя.'),patch.object(server,'send_attachment',return_value={'ok':True}) as media,patch.object(server,'send',return_value={'ok':True}):
+            server.publish_daily_photo(42,server.today())
+        self.assertTrue(any(c.args[0]==42 and 'Свет мягкий' in c.args[2] for c in media.call_args_list))
+        with server.conn() as c:
+            self.assertEqual(c.execute('select status from daily_photos where user_id=42').fetchone()['status'],'done')
+
 
 if __name__ == '__main__':
     unittest.main()
