@@ -62,6 +62,32 @@ def send_text(user_id,text,token,*,keyboard=None):
         body['attachments']=[{'type':'inline_keyboard','payload':{'buttons':keyboard}}]
     return api('POST','/messages?user_id='+str(user_id),token,body)
 
+def image_info(attachments):
+    """Extract MAX's reusable image token and preview URL from a received attachment."""
+    for attachment in attachments or []:
+        if not isinstance(attachment,dict) or attachment.get('type')!='image':continue
+        payload=attachment.get('payload') or {}
+        if not isinstance(payload,dict):continue
+        items=payload.get('photos') or {}
+        candidate=next((p for p in items.values() if isinstance(p,dict)),{}) if isinstance(items,dict) else next((p for p in items if isinstance(p,dict)),{}) if isinstance(items,list) else {}
+        token=payload.get('token') or candidate.get('token') or ''
+        url=payload.get('url') or candidate.get('url') or ''
+        return {'token':str(token)[:500],'url':str(url)[:1500]}
+    return None
+
+def send_image(user_id,token,caption,bot_token):
+    """Re-send a MAX user's image to another MAX subscriber without downloading it."""
+    if type(user_id) is not int or user_id<=0 or not isinstance(token,str) or not token or len(token)>500:
+        return {'ok':False}
+    try:
+        result=api('POST','/messages?user_id='+str(user_id),bot_token,
+                   {'text':str(caption)[:1200],'format':'html',
+                    'attachments':[{'type':'image','payload':{'token':token}}]})
+        return {'ok':True,'result':result.get('message',result)}
+    except Exception as error:
+        print('MAX image send failed:',type(error).__name__,flush=True)
+        return {'ok':False}
+
 
 def keyboard_from_telegram(rows):
     """Convert the existing TIMECODE buttons to MAX buttons."""
