@@ -154,6 +154,28 @@ def send_attachment(chat, msg, caption):
         return api(method,{'chat_id':chat,field:file_id,'caption':caption[:950]})
     return {}
 
+def publish_to_all(msg, body):
+    """Deliver the admin's message individually, then copy its text to the adults' chat."""
+    body=body.strip()
+    has_media=bool(msg.get('photo') or msg.get('video') or msg.get('document'))
+    with conn() as c:
+        recipients=[r['id'] for r in c.execute("select id from users where enabled=1 and role!='admin' order by id") if r['id'] not in ADMINS]
+    sent=failed=0
+    for uid in recipients:
+        if has_media and uid>0:
+            result=send_attachment(uid,msg,body)
+        elif has_media and uid<0:
+            # Telegram file IDs cannot be opened by MAX; the caption is still delivered.
+            result=send(uid,esc(body) if body else '📎 Преподаватель прислал медиасообщение в Telegram.')
+        else:
+            result=send(uid,esc(body))
+        if result.get('ok'):sent+=1
+        else:failed+=1
+    if GROUP:
+        result=send_attachment(GROUP,msg,body) if has_media else send(GROUP,esc(body))
+        if not result.get('ok'):failed+=1
+    return sent,failed
+
 def ask_admins(uid,body):
     with conn() as c:
         question_id=c.execute('insert into questions(user_id,body,created) values (?,?,?)',(uid,body[:2000],int(time.time()))).lastrowid
@@ -472,6 +494,48 @@ def roster(uid,name):
         c.execute("insert into users(id,name,role,joined) values (?,?,?,?) on conflict(id) do update set name=excluded.name",(uid,name[:80],'admin' if uid in ADMINS else 'member',int(time.time())))
         if uid in ADMINS:c.execute("update users set role='admin' where id=?",(uid,))
 
+def admin_buttons():
+    return [[{'text':'📣 Написать всем','callback_data':'admin:publish'},
+             {'text':'👥 Подписчики','callback_data':'admin:subscribers:0'}],
+            [{'text':'❓ Вопросы','callback_data':'admin:questions'}]]
+
+def admin_menu(uid):
+    if uid not in ADMINS:return
+    if uid>0:
+        api('sendMessage',{'chat_id':uid,'text':'🎛 Управление TIMECODE. Кнопки закреплены внизу чата.',
+                           'reply_markup':{'keyboard':[[{'text':'📣 Написать всем'},
+                                                         {'text':'👥 Подписчики'}]],
+                                           'resize_keyboard':True,'is_persistent':True}})
+    else:
+        send(uid,'🎛 Управление TIMECODE',admin_buttons())
+
+def subscriber_report(uid,page=0):
+    if uid not in ADMINS:return
+    page=max(0,min(int(page),1000))
+    with conn() as c:
+        rows=[r for r in c.execute("select id,name,lab,enabled,joined from users where role!='admin' order by joined desc,id desc") if r['id'] not in ADMINS]
+    telegram=sum(r['id']>0 for r in rows)
+    max_users=sum(r['id']<0 for r in rows)
+    active=sum(r['enabled'] for r in rows)
+    per_page=12
+    pages=max(1,(len(rows)+per_page-1)//per_page)
+    page=min(page,pages-1)
+    lines=['👥 <b>ПОДПИСЧИКИ TIMECODE</b>',
+           'Всего: <b>'+str(len(rows))+'</b> · Telegram: '+str(telegram)+' · MAX: '+str(max_users),
+           'Получают сообщения: '+str(active)+' · Отключили рассылку: '+str(len(rows)-active),'']
+    for r in rows[page*per_page:(page+1)*per_page]:
+        platform='Telegram' if r['id']>0 else 'MAX'
+        lab='Media Lab' if r['lab']=='media' else 'Kids Lab'
+        joined=dt.datetime.fromtimestamp(r['joined'],TZ).strftime('%d.%m %H:%M')
+        muted=' · 🔕' if not r['enabled'] else ''
+        lines.append('• '+esc(r['name'])+' · '+platform+' · '+lab+' · '+joined+muted)
+    lines.append('\nСтраница '+str(page+1)+'/'+str(pages))
+    navigation=[]
+    if page:navigation.append({'text':'← Назад','callback_data':'admin:subscribers:'+str(page-1)})
+    if page+1<pages:navigation.append({'text':'Далее →','callback_data':'admin:subscribers:'+str(page+1)})
+    buttons=([navigation] if navigation else [])+admin_buttons()[:1]
+    send(uid,'\n'.join(lines),buttons)
+
 def allowed(uid):
     with conn() as c:return bool(c.execute('select 1 from users where id=?',(uid,)).fetchone())
 
@@ -510,14 +574,19 @@ def bot_message(msg):
             with conn() as c:c.execute("update users set stage='mission' where id=?",(uid,))
             send(uid,'🎬 Пришли ответ на сегодняшнее задание: фото или одну короткую фразу.');return
         keys=[[{'text':'Открыть TIMECODE ↗','web_app':{'url':BASE}}]] if BASE else []
-        if uid in ADMINS:keys += [[{'text':'📣 Написать всем','callback_data':'admin:publish'},{'text':'❓ Вопросы','callback_data':'admin:questions'}]]
+        if uid in ADMINS:keys += admin_buttons()
         if first_join:
             keys += [[{'text':'Я в Kids Lab','callback_data':'onboard:lab:kids'},{'text':'Я в Media Lab','callback_data':'onboard:lab:media'}]]
             name=esc(msg.get('from',{}).get('first_name','').strip()[:40] or 'друг')
             send(uid,'🎬 <b>Привет, '+name+'! Я TIMECODE.</b>\nБот медиацентра «Марфино». Будем на связи каждый день: утром спрошу, как начался день, вечером — что запомнилось. Из ваших ответов соберу живую сводку группы. Не хочется отвечать — можно пропустить.\n\n⏱ В 15:00 принесу короткий лайфхак про кино и съёмку. Во вторник и пятницу предложу снять мгновенный кадр.\n\n📱 В приложении найдёшь <b>расписание, игры и уроки</b> — можно вернуться к тем, что уже проходили.\n\nЯ пока только учусь и буду расти вместе с вами. Выбери свою лабораторию ниже и заглядывай в приложение. Начнём?',keys)
         else:
             send(uid,'🎬 <b>TIMECODE на связи.</b> Расписание, игры и уроки — в приложении. Я здесь, если захочешь задать вопрос или присоединиться к сегодняшнему выпуску.',keys)
+        if uid in ADMINS:admin_menu(uid)
         return
+    if uid in ADMINS and text in ('/admin','🎛 Управление'):
+        admin_menu(uid);return
+    if uid in ADMINS and text in ('/subscribers','👥 Подписчики'):
+        subscriber_report(uid);return
     if uid in ADMINS and text in ('/publish','📣 Написать всем'):
         with conn() as c:c.execute("update users set stage='admin_publish' where id=?",(uid,))
         send(uid,'📣 Напиши сообщение или отправь фото, видео либо документ. Бот разошлёт его всем лично и продублирует во взрослый чат, если тот подключён. /stop — отмена.')
@@ -702,6 +771,10 @@ def callback(q):
     if uid in ADMINS and data=='admin:publish':
         with conn() as c:c.execute("update users set stage='admin_publish' where id=?",(uid,))
         send(uid,'📣 Отправь сообщение, фото, видео или документ. Разошлю каждому в личный бот и продублирую в чат взрослых, если он подключён. /stop — отменить.')
+        return
+    if uid in ADMINS and data.startswith('admin:subscribers:'):
+        raw=data.rsplit(':',1)[-1]
+        if raw.isdigit():subscriber_report(uid,int(raw))
         return
     if uid in ADMINS and data=='admin:questions':
         with conn() as c:rows=c.execute('select q.id,q.body,u.name from questions q join users u on q.user_id=u.id where q.answered=0 order by q.id desc limit 5').fetchall()
