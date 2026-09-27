@@ -889,8 +889,25 @@ def max_update(update):
         recipient=message.get('recipient') or {}
         if type(external) is not int or external<=0 or recipient.get('chat_type') not in (None,'dialog'):return
         uid=-external
+        body=message.get('body') or {}
+        mid=body.get('mid')
+        if isinstance(mid,str) and mid:
+            with conn() as c:
+                c.execute('create table if not exists max_processed_messages(mid text primary key, created_at integer not null)')
+                if not c.execute('insert or ignore into max_processed_messages(mid,created_at) values(?,?)',(mid,int(time.time()))).rowcount:return
         with conn() as c:max_transport.link_identity(c,'max',external,uid)
-        bot_message({'chat':{'type':'private','id':uid},'from':{'id':uid,'first_name':sender.get('name','Участник')},'text':(message.get('body') or {}).get('text','')})
+        attachments=body.get('attachments') or []
+        # MAX sends pictures inside body.attachments, not body.text.
+        images=[a for a in attachments if isinstance(a,dict) and a.get('type')=='image']
+        photo=[]
+        if images:
+            payload=images[-1].get('payload') or {}
+            photo=[{'file_id':'max:image:'+str(payload.get('token') or body.get('mid') or 'received')}]
+        try:bot_message({'chat':{'type':'private','id':uid},'from':{'id':uid,'first_name':sender.get('name','Участник')},'text':body.get('text') or '', 'caption':body.get('text') or '', 'photo':photo})
+        except Exception:
+            if isinstance(mid,str) and mid:
+                with conn() as c:c.execute('delete from max_processed_messages where mid=?',(mid,))
+            raise
     elif kind=='message_callback':
         actor=update.get('user') or (update.get('callback') or {}).get('user') or {}
         external=actor.get('user_id')
