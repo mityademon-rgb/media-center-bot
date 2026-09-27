@@ -53,14 +53,11 @@ class BotTests(unittest.TestCase):
         self.assertIn('Москву', message)
         self.assertNotIn('Секрет', message)
 
-    def test_invitation_required(self):
+    def test_direct_start_onboards_student(self):
         with patch.object(server, 'send') as sent:
             server.bot_message({'chat': {'type': 'private'}, 'from': {'id': 99, 'first_name': 'Гость'}, 'text': '/start'})
-        self.assertFalse(server.allowed(99))
-        self.assertIn('приглашению', sent.call_args.args[1])
-        with patch.object(server, 'send'):
-            server.bot_message({'chat': {'type': 'private'}, 'from': {'id': 99, 'first_name': 'Гость'}, 'text': '/start '+server.JOIN})
         self.assertTrue(server.allowed(99))
+        self.assertIn('Привет', sent.call_args.args[1])
 
     def test_auth_token_tampering(self):
         token = server.signed(42)
@@ -164,6 +161,26 @@ class BotTests(unittest.TestCase):
         with patch.object(server,'ai_json') as ai:
             self.assertEqual(server.make_daily('tip'),server.fallback_content('tip'))
         ai.assert_not_called()
+
+    def test_subscriber_report_lists_platform_and_excludes_admin(self):
+        server.roster(-63,'Ученик MAX')
+        with server.conn() as c:c.execute('update users set enabled=0 where id=-63')
+        with patch.object(server,'send') as delivered:
+            server.subscriber_report(11)
+        report=delivered.call_args.args[1]
+        self.assertIn('Всего: <b>2</b> · Telegram: 1 · MAX: 1',report)
+        self.assertIn('Ученик MAX · MAX',report)
+        self.assertIn('Матвей · Telegram',report)
+        self.assertNotIn('Дмитрий',report)
+        self.assertIn('Отключили рассылку: 1',report)
+
+    def test_admin_menu_persistent_button_is_private(self):
+        with patch.object(server,'api',return_value={'ok':True}) as request:
+            server.admin_menu(11)
+            server.admin_menu(42)
+        self.assertEqual(request.call_count,1)
+        self.assertEqual(request.call_args.args[1]['chat_id'],11)
+        self.assertTrue(request.call_args.args[1]['reply_markup']['is_persistent'])
 
 
 if __name__ == '__main__':
