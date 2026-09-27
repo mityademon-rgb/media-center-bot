@@ -94,6 +94,8 @@ def init():
         create table if not exists evening_checkins(user_id integer not null,day text not null,mood text not null default '',highlight text not null default '',satisfied text not null default '',visible integer not null default 0,step text not null default '',primary key(user_id,day));
         create table if not exists morning_checkins(user_id integer not null,day text not null,sleep text not null default '',mood text not null default '',important text not null default '',photo text not null default '',visible integer not null default 0,step text not null default '',primary key(user_id,day));
         create table if not exists missions(id integer primary key,user_id integer not null,day text not null,kind text not null,answer text not null default '',photo text not null default '',published integer not null default 0,unique(user_id,day));
+        create table if not exists daily_photos(user_id integer not null,day text not null,photo text not null,photo_url text not null default '',comment text not null default '',status text not null default 'pending',created integer not null,primary key(user_id,day));
+        create table if not exists weekly_surveys(user_id integer not null,week text not null,memorable text not null default '',curious text not null default '',feature text not null default '',step text not null default 'start',primary key(user_id,week));
         create table if not exists lessons(id integer primary key,lab text not null,weekday integer not null,start text not null,title text not null,place text not null default '',enabled integer not null default 1);
         create table if not exists overrides(id integer primary key,day text not null,lab text not null,start text not null,title text not null,place text not null default '',cancelled integer not null default 0);
         create table if not exists sent(slot text not null,day text not null,primary key(slot,day));
@@ -224,9 +226,11 @@ def kimi_request(path,payload,timeout=24):
 
 def ai_digest(kind, facts):
     if not AI_KEY: return None
-    prompt = ('Напиши по-русски короткую смешную сводку TIMECODE для школьного медиацентра. '
+    prompt = ('Напиши по-русски короткую живую сводку TIMECODE для школьного медиацентра. '
               'Используй только перечисленные факты, не добавляй людей, обстоятельства или оценки здоровья и учёбы. '
-              'Не высмеивай участника. Остроумно, тепло, максимум 650 символов. '
+              'Голос бота: ироничный, чуть ворчливый, на равных со школьниками. Не сюсюкай, не ставь эмодзи через слово. '
+              'Хвали за конкретные поступки. Шутка только если действительно точная; если не выходит, обойдись без неё. '
+              'Не высмеивай участника. Максимум 650 символов. '
               'Верни только JSON вида {"text":"..."}. Тема: '+kind+'; факты: '+json.dumps(facts,ensure_ascii=False))
     try:
         data=kimi_request('/chat/completions',{'model':AI_MODEL,'response_format':{'type':'json_object'},'max_tokens':350,'messages':[{'role':'user','content':prompt}],**kimi_params()})
@@ -244,24 +248,36 @@ def ai_json(system,request,max_tokens=250):
         return obj if isinstance(obj,dict) else None
     except Exception as e:print('AI research:',str(e)[:160],flush=True);return None
 
-def photo_comment(file_id):
-    """View a Telegram-compressed photo with Kimi; return a playful caption or ''."""
-    if not AI_KEY or not TOKEN:return ''
-    file=(api('getFile',{'file_id':file_id}).get('result') or {})
-    path=file.get('file_path','')
-    if not re.fullmatch(r'photos/[A-Za-z0-9_-]+\.jpe?g',path) or file.get('file_size',0)>4_000_000:return ''
+def photo_comment(file_id,photo_url=''):
+    """Look at the actual picture before commenting on composition and light."""
+    if not AI_KEY:return ''
     try:
-        fetched=subprocess.run(['curl','-4','-fsS','--connect-timeout','8','--max-time','20','--max-filesize','4000000',
-                                'https://api.telegram.org/file/bot'+TOKEN+'/'+path],capture_output=True,timeout=23)
+        if photo_url:
+            parsed=urllib.parse.urlsplit(photo_url)
+            host=(parsed.hostname or '').lower()
+            if parsed.scheme!='https' or not any(host==domain or host.endswith('.'+domain) for domain in ('max.ru','oneme.ru')):return ''
+            url=photo_url
+        elif not file_id.startswith('max:image:') and TOKEN:
+            file=(api('getFile',{'file_id':file_id}).get('result') or {})
+            path=file.get('file_path','')
+            if not re.fullmatch(r'photos/[A-Za-z0-9_-]+\.jpe?g',path) or file.get('file_size',0)>4_000_000:return ''
+            url='https://api.telegram.org/file/bot'+TOKEN+'/'+path
+        else:return ''
+        fetched=subprocess.run(['curl','-4','-fsS','--connect-timeout','8','--max-time','20','--max-filesize','4000000',url],capture_output=True,timeout=23)
         if fetched.returncode or not 0<len(fetched.stdout)<=4_000_000:return ''
-        content=[{'type':'text','text':('Ты остроумный редактор школьного медиацентра TIMECODE. Посмотри на РЕАЛЬНОЕ фото ученика и придумай одну смешную подпись на русском до 120 символов. '
-                                         'Шути о предметах, композиции и неожиданном сюжете кадра, не о внешности, здоровье, личной жизни или способностях людей. '
-                                         'Не выдумывай детали вне кадра, не пытайся узнать личность или место. Если непонятно, что изображено, дай нейтральную, но остроумную подпись. Верни одну строку без кавычек.')},
-                 {'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+base64.b64encode(fetched.stdout).decode('ascii')}}]
-        data=kimi_request('/chat/completions',{'model':VISION_MODEL,'max_tokens':110,'messages':[{'role':'user','content':content}],
+        mime='image/jpeg' if fetched.stdout.startswith(b'\xff\xd8') else 'image/png' if fetched.stdout.startswith(b'\x89PNG') else ''
+        if not mime:return ''
+        content=[{'type':'text','text':('Ты редактор TIMECODE. Посмотри на реальный кадр ученика. Напиши ровно два коротких предложения по-русски. '
+                                         'Сначала конкретно оцени фотографию: композицию, свет, ракурс или то, как кадр рассказывает историю. '
+                                         'Хвали только видимое и конкретное; если есть проблема, предложи одно понятное улучшение. '
+                                         'Во втором предложении добавь остроумное, чуть ворчливое наблюдение по видимым деталям. '
+                                         'Общайся на равных, без сюсюканья, набора эмодзи и картонных шуток: если сильной шутки нет, обойдись наблюдением. '
+                                         'Не выдумывай детали и не оценивай внешность или личность людей. Только две фразы без кавычек.')},
+                 {'type':'image_url','image_url':{'url':'data:'+mime+';base64,'+base64.b64encode(fetched.stdout).decode('ascii')}}]
+        data=kimi_request('/chat/completions',{'model':VISION_MODEL,'max_tokens':220,'messages':[{'role':'user','content':content}],
                                                **({'thinking':{'type':'disabled'}} if VISION_MODEL.startswith('kimi-k2.') else {})},timeout=30)
-        result=str(data['choices'][0]['message']['content']).strip().strip('"«»').splitlines()[0]
-        return result[:170] if 8<=len(result)<=220 else ''
+        result=' '.join(str(data['choices'][0]['message']['content']).strip().strip('"«»').split())
+        return result[:440] if 25<=len(result)<=600 else ''
     except Exception as error:
         print('Kimi photo:',type(error).__name__,flush=True)
         return ''
@@ -383,13 +399,79 @@ def mission():
     send(GROUP,'🎬 <b>СТРАННОЕ ЗАДАНИЕ</b>\n\n<b>'+esc(item['title'])+'</b>\n\n<b>Kids Lab:</b> '+esc(kids)+'\n<b>Media Lab:</b> '+esc(media),[[{'text':'Ответить боту ↗','url':'https://t.me/'+BOTNAME+'?start=mission'}]])
 
 def instant_photo():
-    if not BOTNAME:return
-    message='📸 <b>МГНОВЕННОЕ ФОТО</b>\nСфоткай то, что прямо сейчас перед тобой. Один кадр, без подготовки. Присылай до 20:00 — вечером соберём общую подборку. Если в кадре люди, спроси их согласия.'
-    send(GROUP,message,[[{'text':'Отправить кадр боту ↗','url':'https://t.me/'+BOTNAME+'?start=instant'}]])
-    with conn() as c:users=c.execute('select id from users where enabled=1').fetchall()
+    message=('📷 <b>КАДР ДНЯ</b>\nСними то, что прямо сейчас вокруг тебя. Один кадр — без декораций и постановочного геройства. '
+             'Пришли фото в этот чат: посмотрю на композицию и свет, затем покажу кадр остальным сразу после ответа. '
+             'В кадре люди? Сначала спроси их согласия. Участвовать можно по желанию.')
+    with conn() as c:
+        users=c.execute("select id from users where role!='admin'").fetchall()
+        done={r['user_id'] for r in c.execute('select user_id from daily_photos where day=?',(today(),))}
     for u in users:
+        if u['id'] in done:continue
         with conn() as c:c.execute("update users set stage='instant' where id=? and stage=''",(u['id'],))
-        send(u['id'],message+'\nПришли фото прямо сюда, если хочешь участвовать.')
+        send(u['id'],message)
+
+def publish_daily_photo(uid,day):
+    """Claim once, critique the real photo, then publish promptly to each subscriber."""
+    with conn() as c:
+        if not c.execute("update daily_photos set status='publishing',created=? where user_id=? and day=? and status='pending'",(int(time.time()),uid,day)).rowcount:return
+        row=c.execute('select p.photo,p.photo_url,u.name from daily_photos p join users u on u.id=p.user_id where p.user_id=? and p.day=?',(uid,day)).fetchone()
+        subscribers=c.execute("select id from users where role!='admin'").fetchall()
+    if not row:return
+    try:
+        commentary=photo_comment(row['photo'],row['photo_url'])
+        if not commentary:
+            commentary='Композицию и свет сейчас не могу оценить честно: кадр не удалось рассмотреть. Критиковать вслепую — сомнительный талант.'
+        caption='КАДР ДНЯ · '+row['name']+'\n'+commentary
+        for other in subscribers:
+            target=other['id']
+            if target>0 and uid>0:
+                send_attachment(target,{'photo':[{'file_id':row['photo']}]},caption)
+            elif target<0 and uid<0 and row['photo'].startswith('max:image:') and row['photo']!='max:image:received':
+                token=row['photo'][len('max:image:'):]
+                result=max_transport.send_image(-target,token,esc(caption),MAX_TOKEN)
+                if not result.get('ok'):send(target,esc(caption))
+            else:send(target,esc(caption))
+        if GROUP:
+            if uid>0:send_attachment(GROUP,{'photo':[{'file_id':row['photo']}]},caption)
+            else:send(GROUP,esc(caption))
+        with conn() as c:c.execute("update daily_photos set comment=?,status='done' where user_id=? and day=?",(commentary,uid,day))
+    except Exception as error:
+        print('Daily photo publish failed:',type(error).__name__,flush=True)
+        with conn() as c:c.execute("update daily_photos set status='pending' where user_id=? and day=?",(uid,day))
+
+def accept_daily_photo(uid,msg):
+    photo=msg['photo'][-1]['file_id']
+    extra=msg.get('max_photo') or {}
+    day=today()
+    with conn() as c:
+        inserted=c.execute("insert or ignore into daily_photos(user_id,day,photo,photo_url,created) values(?,?,?,?,?)",(uid,day,photo,str(extra.get('url') or '')[:1500],int(time.time()))).rowcount
+        if inserted:c.execute("update users set stage='' where id=? and stage='instant'",(uid,))
+    if not inserted:
+        send(uid,'Кадр дня уже получил. Второй прибереги на завтра: серия тоже требует монтажа.');return
+    send(uid,'Кадр принят. Посмотрю, что в нём работает, и покажу остальным — без ожидания вечернего выпуска.')
+    threading.Thread(target=publish_daily_photo,args=(uid,day),daemon=True).start()
+
+def recover_daily_photos():
+    with conn() as c:
+        c.execute("update daily_photos set status='pending' where status='publishing' and created<?",(int(time.time())-180,))
+        pending=c.execute("select user_id,day from daily_photos where status='pending' order by created limit 10").fetchall()
+    for r in pending:threading.Thread(target=publish_daily_photo,args=(r['user_id'],r['day']),daemon=True).start()
+
+def survey_week():
+    return (now().date()-dt.timedelta(days=now().weekday())).isoformat()
+
+SURVEY_QUESTIONS={
+    'memorable':'Что тебе запомнилось на занятиях в медиацентре за последнее время?',
+    'curious':'Что ты хотел бы узнать или попробовать поскорее?',
+    'feature':'Какой функции не хватает в TIMECODE? Что ты хотел бы здесь видеть?'
+}
+
+def weekly_survey():
+    with conn() as c:users=c.execute("select id from users where role!='admin'").fetchall()
+    for u in users:
+        send(u['id'],'Три вопроса про медиацентр. Что зацепило, что хочется попробовать и чего не хватает в TIMECODE? '
+             'Ответы увижу я и преподаватель; в общий выпуск их не отправляю. Займёт пару минут.',
+             [[{'text':'Ответить','callback_data':'weekly:start'}, {'text':'Не сейчас','callback_data':'weekly:skip'}]])
 
 def weekly():
     weekstart=(now().date()-dt.timedelta(days=6)).isoformat()
@@ -484,9 +566,10 @@ def scheduler():
             if clock=='20:00':run_slot('evening-close',lambda:close_checkin('pm'))
             if clock=='20:30':run_slot('digest-pm',lambda:digest('pm'))
             if t.weekday() in (0,2) and clock=='16:00':run_slot('mission',mission)
-            if t.weekday() in (1,4) and clock=='16:00':run_slot('instant-photo',instant_photo)
-            if t.weekday() in (1,4) and clock=='20:30':run_slot('photos-digest',photos_digest)
+            if clock=='16:00':run_slot('instant-photo',instant_photo)
+            if t.weekday()==6 and clock=='17:00':run_slot('weekly-survey',weekly_survey)
             if t.weekday()==6 and clock=='18:00':run_slot('weekly',weekly)
+            recover_daily_photos()
             class_reminders()
         except Exception as e:print('Scheduler:',str(e)[:200],flush=True)
         time.sleep(20)
@@ -547,8 +630,9 @@ def chat_reply(question):
         return '📅 Актуальное расписание и изменения есть в приложении TIMECODE. Нажми «Открыть TIMECODE» в боте и загляни в раздел «Расписание».'
     if not AI_KEY:
         return 'Я на связи. Игры, расписание, уроки и полезные материалы — в приложении TIMECODE. Если вопрос для Дмитрия Витальевича, напиши /ask и сам вопрос.'
-    response=ai_json('Ты TIMECODE — дружелюбный собеседник школьного медиацентра. '
-        'Ответь ученику на его реплику по-русски кратко, живо и по делу (до 450 символов). '
+    response=ai_json('Ты TIMECODE — собеседник школьного медиацентра, ироничный, немного ворчливый, на равных. '
+        'Ответь ученику на его реплику по-русски кратко, живо и по делу (до 450 символов). Без сюсюканья и эмодзи через слово. '
+        'Хвали за конкретный результат. Шути только если получается остроумно, не вставляй шутку ради шутки. '
         'Помогай с вопросами про съёмку, кино, журналистику и творчество. '
         'Не придумывай расписание, события, личные сведения и факты, которых не знаешь. '
         'Игры, расписание занятий, уроки и полезные материалы находятся в приложении TIMECODE. '
@@ -587,10 +671,8 @@ def bot_message(msg):
         roster(uid,' '.join(filter(None,[msg.get('from',{}).get('first_name',''),msg.get('from',{}).get('last_name','')])) or 'Участник')
     if text.startswith('/start'):
         if start=='instant':
-            if now().weekday() not in (1,4) or now().strftime('%H:%M')<'16:00' or now().strftime('%H:%M')>='20:00':
-                send(uid,'Мгновенный кадр принимаю по вторникам и пятницам с 16:00 до 20:00.');return
             with conn() as c:c.execute("update users set stage='instant' where id=?",(uid,))
-            send(uid,'📸 Сфоткай то, что сейчас перед тобой, и отправь сюда одно фото до 20:00. В 20:30 покажу кадры в общем чате. Если не хочешь участвовать — просто не присылай.');return
+            send(uid,'Сними один кадр вокруг себя и пришли сюда. Посмотрю на фотографию и сразу покажу её остальным. Если не хочется участвовать — ничего отправлять не нужно.');return
         if start=='mission':
             with conn() as c:c.execute("update users set stage='mission' where id=?",(uid,))
             send(uid,'🎬 Пришли ответ на сегодняшнее задание: фото или одну короткую фразу.');return
@@ -710,16 +792,35 @@ def bot_message(msg):
             c.execute('update '+table+" set photo=? where user_id=? and day=? and step='done'",(photo,uid,today()))
             c.execute("update users set stage='' where id=?",(uid,))
         send(uid,'📸 Кадр принят. Добавлю его к общему выпуску.');return
-    if stage=='instant':
-        if now().weekday() not in (1,4) or not '16:00'<=now().strftime('%H:%M')<'20:00':
-            with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
-            send(uid,'Сбор мгновенных кадров уже закончился.');return
-        if not photo:send(uid,'Отправь одно фото. Можно просто не участвовать.');return
-        commentary=photo_comment(photo)
+    if photo and stage!='mission' and uid not in ADMINS:
+        accept_daily_photo(uid,msg);return
+    if stage.startswith('weekly:'):
+        field=stage.partition(':')[2]
+        if field not in SURVEY_QUESTIONS:return
+        if not text or text.startswith('/'):
+            send(uid,'Одной короткой фразой: '+SURVEY_QUESTIONS[field],[[{'text':'Закончить опрос','callback_data':'weekly:skip'}]]);return
+        fields=('memorable','curious','feature')
+        next_field=fields[fields.index(field)+1] if field!='feature' else ''
         with conn() as c:
-            c.execute("insert into missions(user_id,day,kind,answer,photo,published,comment) values(?,?,'instant','',?,1,?) on conflict(user_id,day) do update set kind='instant',answer='',photo=excluded.photo,published=1,comment=excluded.comment",(uid,today(),photo,commentary))
-            c.execute("update users set stage='' where id=?",(uid,))
-        send(uid,'📸 Кадр принят. Сегодня в 20:30 увидишь его в общей подборке.');return
+            row=c.execute('select step from weekly_surveys where user_id=? and week=?',(uid,survey_week())).fetchone()
+            if not row or row['step']!=field:
+                c.execute("update users set stage='' where id=?",(uid,));return
+            c.execute('update weekly_surveys set '+field+'=?,step=? where user_id=? and week=?',(text[:350],next_field or 'done',uid,survey_week()))
+            c.execute('update users set stage=? where id=?',('weekly:'+next_field if next_field else '',uid))
+            completed=c.execute('select memorable,curious,feature from weekly_surveys where user_id=? and week=?',(uid,survey_week())).fetchone()
+            person=c.execute('select name from users where id=?',(uid,)).fetchone()['name']
+        if next_field:
+            send(uid,str(fields.index(next_field)+1)+'/3. '+SURVEY_QUESTIONS[next_field],[[{'text':'Закончить опрос','callback_data':'weekly:skip'}]])
+        else:
+            send(uid,'Спасибо. Я передал ответы Дмитрию Витальевичу. Особенно про недостающую функцию: это уже похоже на техническое задание.')
+            report='ОПРОС · '+esc(person)+' · '+('MAX' if uid<0 else 'Telegram')+'\n'
+            report+='Запомнилось: '+esc(completed['memorable'])+'\nХочет узнать: '+esc(completed['curious'])+'\nНе хватает: '+esc(completed['feature'])
+            for admin_id in ADMINS:send(admin_id,report)
+        return
+    if stage=='instant':
+        if text and not text.startswith('/'):
+            send(uid,esc(chat_reply(text))+'\n\nКадр дня можно прислать позже.');return
+        send(uid,'Если хочешь участвовать, пришли фото сюда. Отвечать на задание необязательно.');return
     if stage=='morning:important':
         if not checkin_open('am'):
             with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
@@ -806,6 +907,20 @@ def callback(q):
             if row and not row['answered']:c.execute('update users set stage=? where id=?',('admin_question:'+number,uid))
         if not row or row['answered']:send(uid,'На этот вопрос уже ответили.');return
         send(uid,'Ответь на вопрос #'+number+' следующим сообщением: текст, фото, видео или документ. /stop — отменить.')
+        return
+    if data in ('weekly:start','weekly:skip'):
+        with conn() as c:
+            row=c.execute('select step from weekly_surveys where user_id=? and week=?',(uid,survey_week())).fetchone()
+            if data=='weekly:skip':
+                c.execute("insert into weekly_surveys(user_id,week,step) values(?,?,'skipped') on conflict(user_id,week) do update set step='skipped'",(uid,survey_week()))
+                c.execute("update users set stage='' where id=? and stage like 'weekly:%'",(uid,))
+            elif row and row['step']=='done':
+                send(uid,'Ответы за эту неделю уже получил. Новые вопросы будут в воскресенье.');return
+            else:
+                c.execute("insert into weekly_surveys(user_id,week,step) values(?,?,'memorable') on conflict(user_id,week) do update set step='memorable',memorable='',curious='',feature=''",(uid,survey_week()))
+                c.execute("update users set stage='weekly:memorable' where id=?",(uid,))
+        if data=='weekly:skip':send(uid,'Хорошо. Опрос необязательный.');return
+        send(uid,'1/3. '+SURVEY_QUESTIONS['memorable'],[[{'text':'Закончить опрос','callback_data':'weekly:skip'}]])
         return
     if data.startswith('morning:'):
         if not checkin_open('am'):
@@ -987,12 +1102,9 @@ def max_update(update):
         with conn() as c:max_transport.link_identity(c,'max',external,uid)
         attachments=body.get('attachments') or []
         # MAX sends pictures inside body.attachments, not body.text.
-        images=[a for a in attachments if isinstance(a,dict) and a.get('type')=='image']
-        photo=[]
-        if images:
-            payload=images[-1].get('payload') or {}
-            photo=[{'file_id':'max:image:'+str(payload.get('token') or body.get('mid') or 'received')}]
-        try:bot_message({'chat':{'type':'private','id':uid},'from':{'id':uid,'first_name':sender.get('name','Участник')},'text':body.get('text') or '', 'caption':body.get('text') or '', 'photo':photo})
+        image=max_transport.image_info(attachments)
+        photo=[{'file_id':'max:image:'+(image['token'] or str(body.get('mid') or 'received'))}] if image else []
+        try:bot_message({'chat':{'type':'private','id':uid},'from':{'id':uid,'first_name':sender.get('name','Участник')},'text':body.get('text') or '', 'caption':body.get('text') or '', 'photo':photo,'max_photo':image})
         except Exception:
             if isinstance(mid,str) and mid:
                 with conn() as c:c.execute('delete from max_processed_messages where mid=?',(mid,))
