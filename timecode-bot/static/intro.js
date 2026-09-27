@@ -5,6 +5,11 @@
   if(!splash||!video)return;
   let finished=false;
   let timer;
+  function soundLabel(){
+    if(!sound)return;
+    sound.textContent=video.muted?'🔊 Включить звук':'🔇 Выключить звук';
+    sound.setAttribute('aria-label',video.muted?'Включить звук заставки':'Выключить звук заставки');
+  }
   function finish(){
     if(finished)return;
     finished=true;
@@ -20,24 +25,27 @@
   video.addEventListener('error',finish,{once:true});
   sound?.addEventListener('click',()=>{
     if(finished)return;
-    video.muted=false;
-    video.volume=1;
-    video.currentTime=0;
-    deadline();
-    sound.hidden=true;
-    const playback=video.play();
-    if(playback&&typeof playback.catch==='function')playback.catch(()=>{sound.hidden=false});
+    video.muted=!video.muted;
+    soundLabel();
+    if(video.paused){
+      const playback=video.play();
+      if(playback&&typeof playback.catch==='function')playback.catch(()=>{
+        video.muted=true;
+        soundLabel();
+      });
+    }
   });
   try{
     if(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches){finish();return}
     video.muted=false;
+    video.volume=1;
+    soundLabel();
     const playback=video.play();
-    if(playback&&typeof playback.then==='function')playback.then(()=>{
-      if(sound&&!video.muted)sound.hidden=true;
-    },()=>{
+    if(playback&&typeof playback.catch==='function')playback.catch(()=>{
       video.muted=true;
+      soundLabel();
       const silent=video.play();
       if(silent&&typeof silent.catch==='function')silent.catch(finish);
     });
-  }catch(_){video.muted=true;try{video.play()}catch(e){finish()}}
+  }catch(_){video.muted=true;soundLabel();try{video.play()}catch(e){finish()}}
 })();
