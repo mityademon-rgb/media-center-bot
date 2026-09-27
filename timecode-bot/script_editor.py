@@ -109,7 +109,7 @@ def submit(c, data, user, db_path, admins, token, ai_json):
     feedback = {key: str((response or {}).get(key, '')).strip()[:1100]
                 for key in ('good', 'improve', 'fix')}
     if not all(feedback.values()):
-        feedback = {'good': 'Сценарий загружен, его уже может прочитать преподаватель.',
+        feedback = {'good': 'Сценарий загружен.',
                     'improve': 'Кими сейчас не смог сделать честный разбор текста.',
                     'fix': 'Попробуй запросить разбор позднее или обсуди сценарий с преподавателем.'}
     c.execute('update script_reviews set feedback=? where id=?',
