@@ -172,7 +172,15 @@ class BotTests(unittest.TestCase):
         self.assertIn('Ученик MAX · MAX',report)
         self.assertIn('Матвей · Telegram',report)
         self.assertNotIn('Дмитрий',report)
-        self.assertIn('Отключили рассылку: 1',report)
+        self.assertIn('Переклички включены: 1 · Отключены: 1',report)
+
+    def test_broadcast_reaches_student_who_disabled_checkins(self):
+        with server.conn() as c:c.execute('update users set enabled=0 where id=42')
+        with patch.object(server,'send',return_value={'ok':True}) as delivered:
+            sent,failed=server.publish_to_all({'text':'Занятие завтра'},'Занятие завтра')
+        self.assertGreaterEqual(sent,1)
+        self.assertEqual(failed,0)
+        self.assertTrue(any(call.args[0]==42 for call in delivered.call_args_list))
 
     def test_admin_menu_persistent_button_is_private(self):
         with patch.object(server,'api',return_value={'ok':True}) as request:
