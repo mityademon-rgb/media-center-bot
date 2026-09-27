@@ -133,7 +133,7 @@ class BotTests(unittest.TestCase):
 
     def test_student_question_admin_reply(self):
         with patch.object(server,'send',return_value={'ok':True,'result':{'message_id':77}}) as sent:
-            server.bot_message({'chat':{'type':'private'},'from':{'id':42},'text':'Как подготовиться к съёмке?'})
+            server.bot_message({'chat':{'type':'private'},'from':{'id':42},'text':'/ask Как подготовиться к съёмке?'})
             self.assertIn('ВОПРОС #1',sent.call_args_list[0].args[1])
             server.bot_message({'chat':{'type':'private'},'from':{'id':11},'text':'Заряди камеру и проверь звук.','reply_to_message':{'message_id':77}})
         self.assertTrue(any(call.args[0]==42 and 'Заряди камеру' in call.args[1] for call in sent.call_args_list))
@@ -172,7 +172,7 @@ class BotTests(unittest.TestCase):
         self.assertIn('Ученик MAX · MAX',report)
         self.assertIn('Матвей · Telegram',report)
         self.assertNotIn('Дмитрий',report)
-        self.assertIn('Переклички включены: 1 · Отключены: 1',report)
+        self.assertNotIn('Отключены:',report)
 
     def test_broadcast_reaches_student_who_disabled_checkins(self):
         with server.conn() as c:c.execute('update users set enabled=0 where id=42')
@@ -189,6 +189,36 @@ class BotTests(unittest.TestCase):
         self.assertEqual(request.call_count,1)
         self.assertEqual(request.call_args.args[1]['chat_id'],11)
         self.assertTrue(request.call_args.args[1]['reply_markup']['is_persistent'])
+
+    def test_checkin_cannot_be_disabled_and_old_opt_out_is_restored(self):
+        with patch.object(server,'send') as delivered:
+            server.bot_message({'chat':{'type':'private'},'from':{'id':42},'text':'/quiet'})
+        with server.conn() as c:
+            self.assertEqual(c.execute('select enabled from users where id=42').fetchone()['enabled'],1)
+            c.execute('update users set enabled=0 where id=42')
+        server.init()
+        with server.conn() as c:
+            self.assertEqual(c.execute('select enabled from users where id=42').fetchone()['enabled'],1)
+        self.assertIn('пропусти',delivered.call_args.args[1])
+
+    def test_student_asks_bot_without_sending_every_message_to_teacher(self):
+        with patch.object(server,'send') as delivered, patch.object(server,'ask_admins') as forwarded:
+            server.bot_message({'chat':{'type':'private'},'from':{'id':42},'text':'Что ты умеешь?'})
+        message=delivered.call_args.args[1]
+        self.assertIn('игры',message)
+        self.assertIn('расписание',message)
+        self.assertIn('отвечаю на вопросы',message)
+        forwarded.assert_not_called()
+
+    def test_student_gets_kimi_answer_and_fallback(self):
+        old=server.AI_KEY
+        server.AI_KEY='test'
+        try:
+            with patch.object(server,'ai_json',return_value={'text':'Попробуй снять с уровня глаз.'}):
+                self.assertIn('уровня глаз',server.chat_reply('Как снять интервью?'))
+            with patch.object(server,'ai_json',return_value=None):
+                self.assertIn('Попробуй ещё раз',server.chat_reply('Как снять интервью?'))
+        finally:server.AI_KEY=old
 
 
 if __name__ == '__main__':
