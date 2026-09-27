@@ -38,8 +38,10 @@ if start not in server.read_text():
 content=server.read_text()
 old="'/screenplay.js','/screenplay.css'"
 new="'/screenplay.js','/screenplay.css','/script_editor.js','/script_editor.css'"
-if old not in content and new not in content:raise RuntimeError('Static route anchor changed')
-server.write_text(content.replace(old,new,1))
+if new not in content:
+    if old not in content:raise RuntimeError('Static route anchor changed')
+    content=content.replace(old,new,1)
+server.write_text(content)
 content=index.read_text()
 if 'src="intro.mp4" playsinline' not in content and 'src="intro.mp4" autoplay playsinline' not in content:
     raise RuntimeError('Intro video anchor changed')
