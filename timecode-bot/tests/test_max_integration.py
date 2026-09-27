@@ -74,5 +74,11 @@ class MaxIntegration(unittest.TestCase):
         self.assertIn('Кадр принят',sent.call_args_list[0].args[1])
         self.assertFalse(any('Пришли одно фото' in c.args[1] for c in sent.call_args_list))
 
+    def test_max_image_info_reads_nested_token_and_preview(self):
+        image=server.max_transport.image_info([{'type':'image','payload':{
+            'photos':{'medium':{'token':'image-token','url':'https://iu.oneme.ru/photo.jpg'}}}}])
+        self.assertEqual(image['token'],'image-token')
+        self.assertEqual(image['url'],'https://iu.oneme.ru/photo.jpg')
+
 
 if __name__=='__main__':unittest.main()
