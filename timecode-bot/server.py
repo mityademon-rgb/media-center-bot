@@ -19,6 +19,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 import quest_engine as quests
 import screenplay_coach as screenplay
+import script_editor
 import max_transport
 
 ROOT = Path(__file__).resolve().parent
@@ -107,6 +108,7 @@ def init():
         create table if not exists daily_content(day text not null,kind text not null,title text not null,body text not null,mode text not null default 'text',source text not null default '',primary key(day,kind));
         ''')
         quests.install(c)
+        script_editor.install(c)
         columns={row['name'] for row in c.execute('pragma table_info(daily_content)')}
         for name in ('body_kids','body_media'):
             if name not in columns:c.execute('alter table daily_content add column '+name+" text not null default ''")
@@ -570,6 +572,8 @@ def scheduler():
             if t.weekday()==6 and clock=='17:00':run_slot('weekly-survey',weekly_survey)
             if t.weekday()==6 and clock=='18:00':run_slot('weekly',weekly)
             recover_daily_photos()
+            if t.minute%5==0 and t.second<20:
+                with conn() as c:script_editor.retry(c,DB,ADMINS,TOKEN)
             class_reminders()
         except Exception as e:print('Scheduler:',str(e)[:200],flush=True)
         time.sleep(20)
@@ -1139,9 +1143,9 @@ class Handler(BaseHTTPRequestHandler):
     def out(self,obj,status=200):
         data=json.dumps(obj,ensure_ascii=False).encode()
         self.send_response(status);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
-    def body(self):
+    def body(self, max_size=100000):
         length=int(self.headers.get('Content-Length','0'))
-        if length>100000:return None
+        if length<0 or length>max_size:return None
         try:return json.loads(self.rfile.read(length))
         except (ValueError,TypeError):return None
     def identity(self):return user_from_token(self.headers.get('Authorization','').removeprefix('Bearer '))
@@ -1169,7 +1173,7 @@ class Handler(BaseHTTPRequestHandler):
             personal_mission=((mission_item['body_media'] if u['lab']=='media' else mission_item['body_kids']) or mission_item['body']) if mission_item else ''
             with conn() as c:campaigns=quests.state(c,u['id'],u['lab'],u['role']=='admin',today())
             return self.out({'quests':campaigns,'me':{'id':u['id'],'name':u['name'],'lab':u['lab'],'role':u['role'],'enabled':bool(u['enabled'])},'lessons':lessons,'changes':changes,'progress':progress,'latest':latest,'tip':[tip_item['title'],tip_item['body']] if tip_item else None,'mission':[mission_item['title'],personal_mission,mission_item['mode']] if mission_item else None,'date':today(),'bot':BOTNAME})
-        if path not in ('/','/app.js','/style.css','/framequest.js','/framequest.css','/nightshift.js','/nightshift.css','/terms-memory.js','/terms-memory.css','/arcade.js','/arcade.css','/glossary.js','/glossary.css','/home-discovery.js','/home-discovery.css','/games-day.webp','/screenplay.js','/screenplay.css','/intro.js','/intro.css','/intro.mp4'):return self.out({'error':'Не найдено'},404)
+        if path not in ('/','/app.js','/style.css','/framequest.js','/framequest.css','/nightshift.js','/nightshift.css','/terms-memory.js','/terms-memory.css','/arcade.js','/arcade.css','/glossary.js','/glossary.css','/home-discovery.js','/home-discovery.css','/games-day.webp','/screenplay.js','/screenplay.css','/script_editor.js','/script_editor.css','/intro.js','/intro.css','/intro.mp4'):return self.out({'error':'Не найдено'},404)
         file=ROOT/'static'/('index.html' if path=='/' else path[1:]);blob=file.read_bytes()
         if path=='/intro.mp4':
             match=re.fullmatch(r'bytes=(\d+)-(\d*)',self.headers.get('Range',''))
@@ -1182,7 +1186,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header('Cache-Control','public, max-age=86400');self.end_headers();self.wfile.write(blob[start:end+1]);return
         self.send_response(200);self.send_header('Content-Type',{'html':'text/html; charset=utf-8','js':'text/javascript; charset=utf-8','css':'text/css; charset=utf-8','webp':'image/webp','mp4':'video/mp4'}[file.suffix[1:]]);self.send_header('Content-Length',str(len(blob)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(blob)
     def do_POST(self):
-        path=urllib.parse.urlsplit(self.path).path;p=self.body()
+        path=urllib.parse.urlsplit(self.path).path
+        if path=='/api/script-editor' and not self.identity():return self.out({'error':'Сначала войдите'},401)
+        p=self.body(2_900_000 if path=='/api/script-editor' else 100000)
         if p is None:return self.out({'error':'Неверный запрос'},400)
         if path=='/api/max/webhook':
             if not MAX_TOKEN or not max_transport.valid_webhook_secret(self.headers.get('X-Max-Bot-Api-Secret',''),MAX_WEBHOOK_SECRET):
@@ -1203,6 +1209,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.out({'error':'Нет доступа. Откройте приглашение TIMECODE.'},403)
         u=self.identity()
         if not u:return self.out({'error':'Сначала войдите'},401)
+        if path=='/api/script-editor':
+            try:
+                with conn() as c:result=script_editor.submit(c,p,u,DB,ADMINS,TOKEN,ai_json)
+                return self.out(result)
+            except ValueError as error:return self.out({'error':str(error)},400)
+            except Exception as error:
+                print('Script editor:',type(error).__name__,str(error)[:100],flush=True)
+                return self.out({'error':'Не удалось обработать сценарий. Попробуй ещё раз.'},500)
         if path=='/api/screenplay':
             try:
                 with conn() as c:result=screenplay.act(c,u['id'],p,ai_json)
