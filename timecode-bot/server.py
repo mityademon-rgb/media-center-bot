@@ -591,10 +591,7 @@ def admin_buttons():
 def admin_menu(uid):
     if uid not in ADMINS:return
     if uid>0:
-        return api('sendMessage',{'chat_id':uid,'text':'🎛 Управление TIMECODE. Кнопки закреплены внизу чата.',
-                           'reply_markup':{'keyboard':[[{'text':'📣 Написать всем'},
-                                                         {'text':'👥 Подписчики'}]],
-                                           'resize_keyboard':True,'is_persistent':True}})
+        return send(uid,'🎛 <b>УПРАВЛЕНИЕ TIMECODE</b>\nКнопка «Написать всем» — прямо под этим сообщением.',admin_buttons())
     else:
         return send(uid,'🎛 Управление TIMECODE',admin_buttons())
 
