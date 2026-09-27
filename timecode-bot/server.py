@@ -502,12 +502,12 @@ def admin_buttons():
 def admin_menu(uid):
     if uid not in ADMINS:return
     if uid>0:
-        api('sendMessage',{'chat_id':uid,'text':'🎛 Управление TIMECODE. Кнопки закреплены внизу чата.',
+        return api('sendMessage',{'chat_id':uid,'text':'🎛 Управление TIMECODE. Кнопки закреплены внизу чата.',
                            'reply_markup':{'keyboard':[[{'text':'📣 Написать всем'},
                                                          {'text':'👥 Подписчики'}]],
                                            'resize_keyboard':True,'is_persistent':True}})
     else:
-        send(uid,'🎛 Управление TIMECODE',admin_buttons())
+        return send(uid,'🎛 Управление TIMECODE',admin_buttons())
 
 def subscriber_report(uid,page=0):
     if uid not in ADMINS:return
