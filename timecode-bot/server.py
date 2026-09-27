@@ -112,6 +112,8 @@ def init():
             c.execute("alter table evening_checkins add column photo text not null default ''")
         if 'comment' not in {row['name'] for row in c.execute('pragma table_info(missions)')}:
             c.execute("alter table missions add column comment text not null default ''")
+        # Roll back the old opt-out: answering a check-in remains optional.
+        c.execute('update users set enabled=1 where enabled!=1')
         if not GROUP:
             row=c.execute("select value from settings where key='group_chat'").fetchone()
             if row:GROUP=row['value']
@@ -516,25 +518,44 @@ def subscriber_report(uid,page=0):
         rows=[r for r in c.execute("select id,name,lab,enabled,joined from users where role!='admin' order by joined desc,id desc") if r['id'] not in ADMINS]
     telegram=sum(r['id']>0 for r in rows)
     max_users=sum(r['id']<0 for r in rows)
-    active=sum(r['enabled'] for r in rows)
     per_page=12
     pages=max(1,(len(rows)+per_page-1)//per_page)
     page=min(page,pages-1)
     lines=['👥 <b>ПОДПИСЧИКИ TIMECODE</b>',
-           'Всего: <b>'+str(len(rows))+'</b> · Telegram: '+str(telegram)+' · MAX: '+str(max_users),
-           'Переклички включены: '+str(active)+' · Отключены: '+str(len(rows)-active),'']
+           'Всего: <b>'+str(len(rows))+'</b> · Telegram: '+str(telegram)+' · MAX: '+str(max_users),'']
     for r in rows[page*per_page:(page+1)*per_page]:
         platform='Telegram' if r['id']>0 else 'MAX'
         lab='Media Lab' if r['lab']=='media' else 'Kids Lab'
         joined=dt.datetime.fromtimestamp(r['joined'],TZ).strftime('%d.%m %H:%M')
-        muted=' · 🔕' if not r['enabled'] else ''
-        lines.append('• '+esc(r['name'])+' · '+platform+' · '+lab+' · '+joined+muted)
+        lines.append('• '+esc(r['name'])+' · '+platform+' · '+lab+' · '+joined)
     lines.append('\nСтраница '+str(page+1)+'/'+str(pages))
     navigation=[]
     if page:navigation.append({'text':'← Назад','callback_data':'admin:subscribers:'+str(page-1)})
     if page+1<pages:navigation.append({'text':'Далее →','callback_data':'admin:subscribers:'+str(page+1)})
     buttons=([navigation] if navigation else [])+admin_buttons()[:1]
     return send(uid,'\n'.join(lines),buttons)
+
+def chat_reply(question):
+    """Answer the student directly; forwarding to the teacher requires /ask."""
+    short=question.strip()[:700]
+    lowered=short.casefold()
+    if any(phrase in lowered for phrase in ('что ты умеешь','что умеешь','чем ты можешь','как ты работаешь','кто ты','что здесь есть')):
+        return ('🎬 Я TIMECODE. Открой приложение: там игры, расписание занятий, уроки и полезные материалы про кино и телевидение. '
+                'Здесь я общаюсь с тобой, отвечаю на вопросы и присылаю лайфхаки. Утром и вечером предложу перекличку — отвечать можно по желанию. '
+                'Если хочешь написать преподавателю лично, начни сообщение с /ask.')
+    if any(word in lowered for word in ('расписан','когда занят','во сколько занят','урок сегодня','урок завтра')):
+        return '📅 Актуальное расписание и изменения есть в приложении TIMECODE. Нажми «Открыть TIMECODE» в боте и загляни в раздел «Расписание».'
+    if not AI_KEY:
+        return 'Я на связи. Игры, расписание, уроки и полезные материалы — в приложении TIMECODE. Если вопрос для Дмитрия Витальевича, напиши /ask и сам вопрос.'
+    response=ai_json('Ты TIMECODE — дружелюбный собеседник школьного медиацентра. '
+        'Ответь ученику на его реплику по-русски кратко, живо и по делу (до 450 символов). '
+        'Помогай с вопросами про съёмку, кино, журналистику и творчество. '
+        'Не придумывай расписание, события, личные сведения и факты, которых не знаешь. '
+        'Игры, расписание занятий, уроки и полезные материалы находятся в приложении TIMECODE. '
+        'Если вопрос адресован преподавателю, предложи написать /ask с вопросом. '
+        'Верни JSON с единственным полем text.',short,max_tokens=220)
+    answer=response.get('text','').strip() if isinstance(response,dict) and isinstance(response.get('text'),str) else ''
+    return answer[:650] if answer else 'Не получилось сейчас ответить толком. Попробуй ещё раз или напиши преподавателю: /ask и свой вопрос.'
 
 def allowed(uid):
     with conn() as c:return bool(c.execute('select 1 from users where id=?',(uid,)).fetchone())
@@ -598,12 +619,8 @@ def bot_message(msg):
         code=f'{secrets.randbelow(1000000):06d}'
         with conn() as c:c.execute('insert or replace into codes values (?,?,?)',(code,uid,int(time.time())+300))
         send(uid,'Код для браузера: <b>'+code+'</b>. Действует 5 минут. Никому не пересылай.');return
-    if text.startswith('/quiet'):
-        with conn() as c:c.execute('update users set enabled=0 where id=?',(uid,))
-        send(uid,'Личные переклички выключены. Вернуть: /live');return
-    if text.startswith('/live'):
-        with conn() as c:c.execute('update users set enabled=1 where id=?',(uid,))
-        send(uid,'Личные переклички снова включены.');return
+    if text in ('/quiet','/live'):
+        send(uid,'Перекличка будет приходить каждый день. Если не хочется отвечать, просто пропусти её.');return
     if text.startswith('/lab'):
         lab=text.partition(' ')[2].strip().lower()
         if lab not in ('kids','media'):send(uid,'Выбери: /lab kids или /lab media');return
@@ -623,7 +640,7 @@ def bot_message(msg):
     if text.startswith('/schedule') and uid in ADMINS:
         send(uid,'Добавить занятие: /lesson kids Пн 18:00 | Название | Кабинет\nОтмена или замена на дату: /change kids 2026-10-01 18:00 | Новая тема | Кабинет\nОтмена: /cancel kids 2026-10-01');return
     if uid in ADMINS and text.startswith('/help'):
-        send(uid,'<b>РЕДАКЦИЯ TIMECODE</b>\n/send Текст — написать всем. Фото, видео или документ с подписью <code>/send Текст</code> — отправить файл всем.\n/reply № Текст — ответить ученику; можно ответить прямо на сообщение с вопросом, включая фото или файл.\n/ai off — отключить новые лайфхаки и задания Kimi; /ai on — вернуть.\n/invite — приглашение; /schedule — расписание; /quiet — личные переклички.');return
+        send(uid,'<b>РЕДАКЦИЯ TIMECODE</b>\n/admin — кнопки управления; /subscribers — список участников.\n/send Текст — написать всем. Фото, видео или документ с подписью <code>/send Текст</code> — отправить файл всем.\n/reply № Текст — ответить ученику; можно ответить прямо на сообщение с вопросом, включая фото или файл.\n/ai off — отключить новые лайфхаки и задания Kimi; /ai on — вернуть.\n/invite — приглашение; /schedule — расписание.');return
     if uid in ADMINS and text=='/stop':
         with conn() as c:c.execute("update users set stage='' where id=?",(uid,))
         send(uid,'Действие отменено.');return
@@ -744,10 +761,9 @@ def bot_message(msg):
         send(uid,'Для всех подписчиков: /send Текст или фото с подписью /send Текст. Вопросы учеников придут сюда; отвечай ответом на сообщение. /help — все команды.');return
     if question.startswith('/ask '):question=question[5:].strip()
     if question and not question.startswith('/'):
-        if ask_admins(uid,question):send(uid,'Вопрос ушёл преподавателю. Ответ придёт сюда.')
-        else:send(uid,'Пока не получилось передать вопрос. Попробуй чуть позже.')
+        send(uid,esc(chat_reply(question)))
         return
-    send(uid,'Хочешь спросить преподавателя? Просто напиши вопрос одним сообщением. Открыть игры и расписание можно через меню бота.')
+    send(uid,'🎬 Открой TIMECODE: там игры, расписание, уроки и полезные материалы. Можешь спросить меня о съёмке и кино. Преподавателю — через /ask и вопрос.')
 
 def callback(q):
     uid=q.get('from',{}).get('id');data=q.get('data','');msg=q.get('message',{});cid=msg.get('chat',{}).get('id')
@@ -1083,7 +1099,7 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/profile':
             lab=p.get('lab')
             if lab not in ('kids','media'):return self.out({'error':'Выберите лабораторию'},400)
-            with conn() as c:c.execute('update users set lab=?,enabled=? where id=?',(lab,int(bool(p.get('enabled',True))),u['id']))
+            with conn() as c:c.execute('update users set lab=? where id=?',(lab,u['id']))
             return self.out({'ok':True})
         if path=='/api/quest/choose':
             try:
