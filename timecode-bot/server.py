@@ -159,7 +159,7 @@ def publish_to_all(msg, body):
     body=body.strip()
     has_media=bool(msg.get('photo') or msg.get('video') or msg.get('document'))
     with conn() as c:
-        recipients=[r['id'] for r in c.execute("select id from users where enabled=1 and role!='admin' order by id") if r['id'] not in ADMINS]
+        recipients=[r['id'] for r in c.execute("select id from users where role!='admin' order by id") if r['id'] not in ADMINS]
     sent=failed=0
     for uid in recipients:
         if has_media and uid>0:
@@ -522,7 +522,7 @@ def subscriber_report(uid,page=0):
     page=min(page,pages-1)
     lines=['👥 <b>ПОДПИСЧИКИ TIMECODE</b>',
            'Всего: <b>'+str(len(rows))+'</b> · Telegram: '+str(telegram)+' · MAX: '+str(max_users),
-           'Получают сообщения: '+str(active)+' · Отключили рассылку: '+str(len(rows)-active),'']
+           'Переклички включены: '+str(active)+' · Отключены: '+str(len(rows)-active),'']
     for r in rows[page*per_page:(page+1)*per_page]:
         platform='Telegram' if r['id']>0 else 'MAX'
         lab='Media Lab' if r['lab']=='media' else 'Kids Lab'
