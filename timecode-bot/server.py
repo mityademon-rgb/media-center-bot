@@ -534,7 +534,7 @@ def subscriber_report(uid,page=0):
     if page:navigation.append({'text':'← Назад','callback_data':'admin:subscribers:'+str(page-1)})
     if page+1<pages:navigation.append({'text':'Далее →','callback_data':'admin:subscribers:'+str(page+1)})
     buttons=([navigation] if navigation else [])+admin_buttons()[:1]
-    send(uid,'\n'.join(lines),buttons)
+    return send(uid,'\n'.join(lines),buttons)
 
 def allowed(uid):
     with conn() as c:return bool(c.execute('select 1 from users where id=?',(uid,)).fetchone())
