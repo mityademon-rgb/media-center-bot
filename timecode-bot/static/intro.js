@@ -4,12 +4,9 @@
   const sound=document.getElementById('intro-sound');
   if(!splash||!video)return;
   let finished=false;
+  let waiting=false;
   let timer;
-  function soundLabel(){
-    if(!sound)return;
-    sound.textContent=video.muted?'🔊 Включить звук':'🔇 Выключить звук';
-    sound.setAttribute('aria-label',video.muted?'Включить звук заставки':'Выключить звук заставки');
-  }
+  function label(text){if(sound){sound.textContent=text;sound.setAttribute('aria-label',text)}}
   function finish(){
     if(finished)return;
     finished=true;
@@ -19,33 +16,36 @@
     setTimeout(()=>splash.remove(),400);
   }
   function deadline(){clearTimeout(timer);timer=setTimeout(finish,9500)}
-  deadline();
   document.getElementById('intro-skip')?.addEventListener('click',finish);
   video.addEventListener('ended',finish,{once:true});
   video.addEventListener('error',finish,{once:true});
   sound?.addEventListener('click',()=>{
     if(finished)return;
-    video.muted=!video.muted;
-    soundLabel();
-    if(video.paused){
-      const playback=video.play();
-      if(playback&&typeof playback.catch==='function')playback.catch(()=>{
-        video.muted=true;
-        soundLabel();
-      });
+    if(waiting){
+      video.muted=false;
+      video.volume=1;
+      const start=video.play();
+      if(start&&typeof start.then==='function')start.then(()=>{
+        waiting=false;
+        label('🔇 Выключить звук');
+        deadline();
+      },()=>label('▶ Запустить со звуком'));
+      return;
     }
+    video.muted=!video.muted;
+    label(video.muted?'🔊 Включить звук':'🔇 Выключить звук');
   });
   try{
     if(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches){finish();return}
     video.muted=false;
     video.volume=1;
-    soundLabel();
-    const playback=video.play();
-    if(playback&&typeof playback.catch==='function')playback.catch(()=>{
-      video.muted=true;
-      soundLabel();
-      const silent=video.play();
-      if(silent&&typeof silent.catch==='function')silent.catch(finish);
+    const start=video.play();
+    if(start&&typeof start.then==='function')start.then(deadline,()=>{
+      waiting=true;
+      video.pause();
+      video.currentTime=0;
+      label('▶ Запустить со звуком');
     });
-  }catch(_){video.muted=true;soundLabel();try{video.play()}catch(e){finish()}}
+    else deadline();
+  }catch(_){waiting=true;label('▶ Запустить со звуком')}
 })();
