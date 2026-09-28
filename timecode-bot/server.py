@@ -430,12 +430,9 @@ def publish_daily_photo(uid,day):
                 send_attachment(target,{'photo':[{'file_id':row['photo']}]},caption)
             elif target<0 and uid<0 and row['photo'].startswith('max:image:') and row['photo']!='max:image:received':
                 token=row['photo'][len('max:image:'):]
-                result=max_transport.send_image(-target,token,esc(caption),MAX_TOKEN)
-                if not result.get('ok'):send(target,esc(caption))
-            else:send(target,esc(caption))
-        if GROUP:
-            if uid>0:send_attachment(GROUP,{'photo':[{'file_id':row['photo']}]},caption)
-            else:send(GROUP,esc(caption))
+                max_transport.send_image(-target,token,esc(caption),MAX_TOKEN)
+        if GROUP and uid>0:
+            send_attachment(GROUP,{'photo':[{'file_id':row['photo']}]},caption)
         with conn() as c:c.execute("update daily_photos set comment=?,status='done' where user_id=? and day=?",(commentary,uid,day))
     except Exception as error:
         print('Daily photo publish failed:',type(error).__name__,flush=True)
