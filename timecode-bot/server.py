@@ -116,6 +116,7 @@ def init():
         create table if not exists overrides(id integer primary key,day text not null,lab text not null,start text not null,title text not null,place text not null default '',cancelled integer not null default 0);
         create table if not exists sent(slot text not null,day text not null,primary key(slot,day));
         create table if not exists notification_outbox(day text not null,message_key text not null,chat text not null,body text not null,keyboard text not null default 'null',delivered integer not null default 0,primary key(day,message_key,chat));
+        create table if not exists notification_photo_outbox(day text not null,period text not null,chat text not null,user_id integer not null,photo text not null,caption text not null,delivered integer not null default 0,primary key(day,period,chat,user_id));
         create table if not exists codes(code text primary key,user_id integer not null,expires integer not null);
         create table if not exists progress(user_id integer not null,game text not null,result text not null,day text not null,primary key(user_id,game));
         create table if not exists settings(key text primary key,value text not null);
