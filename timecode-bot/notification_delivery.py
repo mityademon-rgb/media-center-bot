@@ -15,10 +15,10 @@ def install(s):
     def destinations():
         return list(dict.fromkeys(audience() + ([s['GROUP']] if s['GROUP'] else [])))
 
-    def broadcast(message, keyboard=None):
+    def broadcast(message, keyboard=None, chats=None):
         key=hashlib.sha256(message.encode()).hexdigest()[:24]
         with s['conn']() as c:
-            for chat in destinations():
+            for chat in (destinations() if chats is None else chats):
                 c.execute('insert or ignore into notification_outbox(day,message_key,chat,body,keyboard) values(?,?,?,?,?)',
                           (s['today'](),key,json.dumps(chat),message,json.dumps(keyboard,ensure_ascii=False)))
         retry_notifications(key)
@@ -58,19 +58,27 @@ def install(s):
                                   (row['day'],row['period'],row['chat'],row['user_id']))
             except Exception as error:
                 print('Photo retry:',type(error).__name__,flush=True)
+        with s['conn']() as c:
+            c.execute("update daily_photos set status='done' where status='queued' and not exists (select 1 from notification_photo_outbox p where p.day=daily_photos.day and p.period='daily' and p.user_id=daily_photos.user_id and p.delivered=0)")
 
-    def broadcast_checkin_photos(rows,period):
+    def broadcast_checkin_photos(rows,period,story=None):
         label='📸 КАДР УТРА · ' if period=='am' else '📸 КАДР ВЕЧЕРА · '
+        text_only=[]
         with s['conn']() as c:
             for chat in destinations():
+                attached=False
                 for row in rows:
                     photo=row['photo']
                     if not photo:continue
                     from_max=photo.startswith('max:image:')
                     to_max=isinstance(chat,int) and chat<0
                     if from_max!=to_max or photo=='max:image:received':continue
+                    caption=(story[:950] if story and not attached else label+row['name'][:75])
                     c.execute('insert or ignore into notification_photo_outbox(day,period,chat,user_id,photo,caption) values(?,?,?,?,?,?)',
-                              (s['today'](),period,json.dumps(chat),row['user_id'],photo,label+row['name'][:75]))
+                              (s['today'](),period,json.dumps(chat),row['user_id'],photo,caption))
+                    attached=True
+                if not attached:text_only.append(chat)
+        if story and text_only:broadcast(story,chats=text_only)
         retry_photos()
 
     def publish_to_all(msg, body):
@@ -225,8 +233,7 @@ def install(s):
             body=('Утром в редакции пока тихо. Даже хорошие истории иногда начинаются с паузы. В 15:00 вернусь с лайфхаком.' if morning else
                   'Сегодня у микрофона было тихо. Ничего страшного: иногда лучший кадр остаётся за экраном. Хорошего вечера!')
         label=('☀️ <b>10:00 / ИСТОРИИ ЭТОГО УТРА</b>\n\n' if morning else '🌙 <b>20:30 / КАК ПРОШЁЛ ДЕНЬ</b>\n\n')
-        broadcast(label+s['esc'](body))
-        broadcast_checkin_photos(rows,'am' if morning else 'pm')
+        broadcast_checkin_photos(rows,'am' if morning else 'pm',label+body)
 
     def tip():
         item = s['daily_content']('tip', True)
