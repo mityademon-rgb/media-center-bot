@@ -1,5 +1,6 @@
 """The same daily broadcasts go to every subscriber and the connected adult chat."""
 import datetime as dt
+import hashlib
 import html
 import json
 import re
@@ -15,8 +16,28 @@ def install(s):
         return list(dict.fromkeys(audience() + ([s['GROUP']] if s['GROUP'] else [])))
 
     def broadcast(message, keyboard=None):
-        for chat in destinations():
-            s['send'](chat, message, keyboard)
+        key=hashlib.sha256(message.encode()).hexdigest()[:24]
+        with s['conn']() as c:
+            for chat in destinations():
+                c.execute('insert or ignore into notification_outbox(day,message_key,chat,body,keyboard) values(?,?,?,?,?)',
+                          (s['today'](),key,json.dumps(chat),message,json.dumps(keyboard,ensure_ascii=False)))
+        retry_notifications(key)
+
+    def retry_notifications(key=None):
+        with s['conn']() as c:
+            rows=c.execute('select day,message_key,chat,body,keyboard from notification_outbox where day>=? and delivered=0 '+
+                           ('and message_key=? ' if key else '')+'order by day,message_key,chat limit 40',
+                           ((s['now']().date()-dt.timedelta(days=1)).isoformat(),key) if key else
+                           ((s['now']().date()-dt.timedelta(days=1)).isoformat(),)).fetchall()
+        for row in rows:
+            try:
+                result=s['send'](json.loads(row['chat']),row['body'],json.loads(row['keyboard']))
+                if result and result.get('ok'):
+                    with s['conn']() as c:
+                        c.execute('update notification_outbox set delivered=1 where day=? and message_key=? and chat=?',
+                                  (row['day'],row['message_key'],row['chat']))
+            except Exception as error:
+                print('Notification retry:',type(error).__name__,flush=True)
 
     def broadcast_checkin_photos(rows):
         photos=[{'photo':r['photo'],'name':r['name']} for r in rows if r['photo']]
@@ -224,7 +245,9 @@ def install(s):
     def run_slot(key, fn):
         if s['claim'](key,s['today']()):
             try: fn()
-            except Exception as e: print('Slot failed:',key,str(e)[:200],flush=True)
+            except Exception as e:
+                with s['conn']() as c:c.execute('delete from sent where slot=? and day=?',(key,s['today']()))
+                print('Slot failed:',key,str(e)[:200],flush=True)
 
     def weekly():
         weekstart=(s['now']().date()-dt.timedelta(days=6)).isoformat()
@@ -261,4 +284,4 @@ def install(s):
                 message='🎬 <b>СЕГОДНЯ ЗАНЯТИЕ / '+label+'</b>\n'+s['esc'](event['start'])+' · '+s['esc'](event['title'])+'\n'+s['esc'](event['place'])+'\n\nДмитрий Витальевич ждёт. Камеры зарядить; себя — по возможности тоже.'
                 broadcast(message)
 
-    s.update({'morning':morning,'evening':evening,'reminder':reminder,'digest':digest,'evening_digest':lambda:digest('pm'),'tip':tip,'mission':mission,'instant_photo':instant_photo,'photos_digest':photos_digest,'run_slot':run_slot,'weekly':weekly,'class_reminders':class_reminders,'publish_to_all':publish_to_all,'make_daily':make_daily})
+    s.update({'morning':morning,'evening':evening,'reminder':reminder,'digest':digest,'evening_digest':lambda:digest('pm'),'tip':tip,'mission':mission,'instant_photo':instant_photo,'photos_digest':photos_digest,'run_slot':run_slot,'weekly':weekly,'class_reminders':class_reminders,'publish_to_all':publish_to_all,'make_daily':make_daily,'retry_notifications':retry_notifications})
