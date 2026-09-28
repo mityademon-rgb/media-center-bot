@@ -437,23 +437,22 @@ def publish_daily_photo(uid,day):
     with conn() as c:
         if not c.execute("update daily_photos set status='publishing',created=? where user_id=? and day=? and status='pending'",(int(time.time()),uid,day)).rowcount:return
         row=c.execute('select p.photo,p.photo_url,u.name from daily_photos p join users u on u.id=p.user_id where p.user_id=? and p.day=?',(uid,day)).fetchone()
-        subscribers=c.execute("select id from users where role!='admin'").fetchall()
+        subscribers=c.execute('select id from users where enabled=1').fetchall()
     if not row:return
     try:
         commentary=photo_comment(row['photo'],row['photo_url'])
         if not commentary:
             commentary='Композицию и свет сейчас не могу оценить честно: кадр не удалось рассмотреть. Критиковать вслепую — сомнительный талант.'
         caption='КАДР ДНЯ · '+row['name']+'\n'+commentary
-        for other in subscribers:
-            target=other['id']
-            if target>0 and uid>0:
-                send_attachment(target,{'photo':[{'file_id':row['photo']}]},caption)
-            elif target<0 and uid<0 and row['photo'].startswith('max:image:') and row['photo']!='max:image:received':
-                token=row['photo'][len('max:image:'):]
-                max_transport.send_image(-target,token,esc(caption),MAX_TOKEN)
-        if GROUP and uid>0:
-            send_attachment(GROUP,{'photo':[{'file_id':row['photo']}]},caption)
-        with conn() as c:c.execute("update daily_photos set comment=?,status='done' where user_id=? and day=?",(commentary,uid,day))
+        targets=[r['id'] for r in subscribers]
+        if GROUP:targets.append(GROUP)
+        with conn() as c:
+            for target in set(targets):
+                if (target<0)!=(uid<0) or row['photo']=='max:image:received':continue
+                c.execute('insert or ignore into notification_photo_outbox(day,period,chat,user_id,photo,caption) values(?,?,?,?,?,?)',
+                          (day,'daily',json.dumps(target),uid,row['photo'],caption))
+            c.execute("update daily_photos set comment=?,status='queued' where user_id=? and day=?",(commentary,uid,day))
+        retry_notifications()
     except Exception as error:
         print('Daily photo publish failed:',type(error).__name__,flush=True)
         with conn() as c:c.execute("update daily_photos set status='pending' where user_id=? and day=?",(uid,day))
