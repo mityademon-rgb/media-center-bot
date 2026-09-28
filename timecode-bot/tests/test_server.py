@@ -243,6 +243,35 @@ class BotTests(unittest.TestCase):
         with server.conn() as c:
             self.assertEqual(c.execute('select status from daily_photos where user_id=42').fetchone()['status'],'done')
 
+    def test_daily_photo_never_sends_caption_without_photo_to_other_platform(self):
+        server.roster(-17,'MAX student')
+        with server.conn() as c:
+            c.execute('insert into daily_photos(user_id,day,photo,created) values (?,?,?,0)',
+                      (42,server.today(),'telegram-photo'))
+        with patch.object(server,'photo_comment',return_value='Комментарий к кадру'), \
+             patch.object(server,'send_attachment',return_value={'ok':True}) as telegram_photo, \
+             patch.object(server,'send') as text_only, \
+             patch.object(server.max_transport,'send_image') as max_photo:
+            server.publish_daily_photo(42,server.today())
+        self.assertFalse(text_only.called)
+        self.assertFalse(max_photo.called)
+        self.assertTrue(any(call.args[0]==42 for call in telegram_photo.call_args_list))
+        with server.conn() as c:
+            c.execute('insert into daily_photos(user_id,day,photo,created) values (?,?,?,0)',
+                      (-17,server.today(),'max:image:token'))
+        old_token=server.MAX_TOKEN
+        server.MAX_TOKEN='max-test'
+        try:
+            with patch.object(server,'photo_comment',return_value='Комментарий к кадру'), \
+                 patch.object(server,'send_attachment') as telegram_photo, \
+                 patch.object(server,'send') as text_only, \
+                 patch.object(server.max_transport,'send_image',return_value={'ok':True}) as max_photo:
+                server.publish_daily_photo(-17,server.today())
+            self.assertFalse(text_only.called)
+            self.assertFalse(telegram_photo.called)
+            max_photo.assert_called_once()
+        finally:server.MAX_TOKEN=old_token
+
 
 if __name__ == '__main__':
     unittest.main()
