@@ -1,5 +1,6 @@
 """TIMECODE bot + Mini App. Python standard library only; one process per database."""
 import datetime as dt
+from contextlib import contextmanager
 import base64
 import hashlib
 import hmac
@@ -87,13 +88,18 @@ MISSION_FORMATS = (
     ('text', 'Заметь необычный звук и назови его одной фразой.', 'Предложи, каким звуком открыть сцену, чтобы сразу возник вопрос.'),
 )
 
+@contextmanager
 def conn():
     DB.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(DB, timeout=15)
     c.row_factory = sqlite3.Row
-    c.execute('pragma busy_timeout=15000')
-    c.execute('pragma journal_mode=WAL')
-    return c
+    try:
+        c.execute('pragma busy_timeout=15000')
+        c.execute('pragma journal_mode=WAL')
+        with c:
+            yield c
+    finally:
+        c.close()
 
 def init():
     global GROUP
@@ -109,6 +115,7 @@ def init():
         create table if not exists lessons(id integer primary key,lab text not null,weekday integer not null,start text not null,title text not null,place text not null default '',enabled integer not null default 1);
         create table if not exists overrides(id integer primary key,day text not null,lab text not null,start text not null,title text not null,place text not null default '',cancelled integer not null default 0);
         create table if not exists sent(slot text not null,day text not null,primary key(slot,day));
+        create table if not exists notification_outbox(day text not null,message_key text not null,chat text not null,body text not null,keyboard text not null default 'null',delivered integer not null default 0,primary key(day,message_key,chat));
         create table if not exists codes(code text primary key,user_id integer not null,expires integer not null);
         create table if not exists progress(user_id integer not null,game text not null,result text not null,day text not null,primary key(user_id,game));
         create table if not exists settings(key text primary key,value text not null);
@@ -581,6 +588,7 @@ def scheduler():
             if t.weekday()==6 and clock=='17:00':run_slot('weekly-survey',weekly_survey)
             if t.weekday()==6 and clock=='18:00':run_slot('weekly',weekly)
             recover_daily_photos()
+            if t.minute%5==0 and t.second<20:retry_notifications()
             if t.minute%5==0 and t.second<20:
                 with conn() as c:script_editor.retry(c,DB,ADMINS,TOKEN)
             class_reminders()
