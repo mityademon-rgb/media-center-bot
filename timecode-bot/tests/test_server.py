@@ -62,6 +62,25 @@ class BotTests(unittest.TestCase):
         scope['retry_notifications']()
         self.assertEqual(len(attempts),before)
 
+    def test_checkin_photos_only_reach_their_own_messenger(self):
+        server.roster(-17,'MAX student')
+        with server.conn() as c:
+            c.execute("insert into evening_checkins(user_id,day,mood,photo,step) values (?,?,?,?,?)",
+                      (42,server.today(),'Хороший','telegram-photo','done'))
+            c.execute("insert into evening_checkins(user_id,day,mood,photo,step) values (?,?,?,?,?)",
+                      (-17,server.today(),'Хороший','max:image:max-token','done'))
+        scope=vars(server).copy();scope['GROUP']='';scope['AI_KEY']='';scope['MAX_TOKEN']='test'
+        scope['send']=lambda *args,**kwargs:{'ok':True}
+        telegram=[];max_calls=[]
+        scope['send_attachment']=lambda chat,msg,caption:telegram.append((chat,msg)) or {'ok':True}
+        with patch.object(server.max_transport,'send_image',side_effect=lambda *args:max_calls.append(args) or {'ok':True}):
+            server.notification_delivery.install(scope)
+            scope['digest']('pm')
+        self.assertTrue(telegram)
+        self.assertTrue(all(not call[1]['photo'][0]['file_id'].startswith('max:') for call in telegram))
+        self.assertEqual(len(max_calls),1)
+        self.assertEqual(max_calls[0][1],'max-token')
+
     def test_init_data_signature_and_expiry(self):
         import time
         pairs = {'auth_date': str(int(time.time())), 'user': json.dumps({'id': 42})}
