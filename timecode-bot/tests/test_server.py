@@ -32,6 +32,36 @@ class BotTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_database_connection_closes_after_context(self):
+        with server.conn() as c:
+            self.assertEqual(c.execute('select count(*) from users').fetchone()[0],2)
+        with self.assertRaises(__import__('sqlite3').ProgrammingError):
+            c.execute('select 1')
+
+    def test_evening_digest_retries_failed_delivery_without_duplicate(self):
+        scope=vars(server).copy()
+        scope['GROUP']=''
+        scope['AI_KEY']=''
+        attempts=[]
+        ready=[False]
+        def deliver(chat,message,keyboard=None):
+            attempts.append(chat)
+            return {'ok':ready[0]}
+        scope['send']=deliver
+        scope['api']=lambda *args:{'ok':True}
+        server.notification_delivery.install(scope)
+        scope['digest']('pm')
+        with server.conn() as c:
+            row=c.execute('select delivered from notification_outbox where chat=?',(str(42),)).fetchone()
+        self.assertEqual(row['delivered'],0)
+        ready[0]=True
+        scope['retry_notifications']()
+        with server.conn() as c:
+            self.assertEqual(c.execute('select delivered from notification_outbox where chat=?',(str(42),)).fetchone()['delivered'],1)
+        before=len(attempts)
+        scope['retry_notifications']()
+        self.assertEqual(len(attempts),before)
+
     def test_init_data_signature_and_expiry(self):
         import time
         pairs = {'auth_date': str(int(time.time())), 'user': json.dumps({'id': 42})}
