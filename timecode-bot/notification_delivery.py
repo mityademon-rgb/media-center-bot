@@ -38,17 +38,40 @@ def install(s):
                                   (row['day'],row['message_key'],row['chat']))
             except Exception as error:
                 print('Notification retry:',type(error).__name__,flush=True)
+        retry_photos()
 
-    def broadcast_checkin_photos(rows):
-        photos=[{'photo':r['photo'],'name':r['name']} for r in rows if r['photo']]
-        for chat in destinations():
-            for start in range(0,len(photos),10):
-                batch=photos[start:start+10]
-                if len(batch)>1:
-                    media=[{'type':'photo','media':r['photo'],'caption':'📸 Кадр от '+r['name'][:75]} for r in batch]
-                    s['api']('sendMediaGroup',{'chat_id':chat,'media':media})
-                elif batch:
-                    s['api']('sendPhoto',{'chat_id':chat,'photo':batch[0]['photo'],'caption':'📸 Кадр от '+batch[0]['name'][:75]})
+    def retry_photos():
+        with s['conn']() as c:
+            rows=c.execute('select day,period,chat,user_id,photo,caption from notification_photo_outbox where day>=? and delivered=0 order by day,period,chat limit 40',
+                           ((s['now']().date()-dt.timedelta(days=1)).isoformat(),)).fetchall()
+        for row in rows:
+            try:
+                chat=json.loads(row['chat'])
+                if isinstance(chat,int) and chat<0:
+                    token=row['photo'][len('max:image:'):]
+                    result=s['max_transport'].send_image(-chat,token,s['esc'](row['caption']),s['MAX_TOKEN'])
+                else:
+                    result=s['send_attachment'](chat,{'photo':[{'file_id':row['photo']}]},row['caption'])
+                if result and result.get('ok'):
+                    with s['conn']() as c:
+                        c.execute('update notification_photo_outbox set delivered=1 where day=? and period=? and chat=? and user_id=?',
+                                  (row['day'],row['period'],row['chat'],row['user_id']))
+            except Exception as error:
+                print('Photo retry:',type(error).__name__,flush=True)
+
+    def broadcast_checkin_photos(rows,period):
+        label='📸 КАДР УТРА · ' if period=='am' else '📸 КАДР ВЕЧЕРА · '
+        with s['conn']() as c:
+            for chat in destinations():
+                for row in rows:
+                    photo=row['photo']
+                    if not photo:continue
+                    from_max=photo.startswith('max:image:')
+                    to_max=isinstance(chat,int) and chat<0
+                    if from_max!=to_max or photo=='max:image:received':continue
+                    c.execute('insert or ignore into notification_photo_outbox(day,period,chat,user_id,photo,caption) values(?,?,?,?,?,?)',
+                              (s['today'](),period,json.dumps(chat),row['user_id'],photo,label+row['name'][:75]))
+        retry_photos()
 
     def publish_to_all(msg, body):
         """Send a teacher's message or Telegram media to every enrolled user and the adult chat."""
@@ -155,9 +178,9 @@ def install(s):
         morning=period!='pm'
         with s['conn']() as c:
             if morning:
-                rows=c.execute("select u.name,m.sleep,m.mood,m.important,m.photo from morning_checkins m join users u on u.id=m.user_id where m.day=? and m.step='done' and m.mood!='' order by u.name",(s['today'](),)).fetchall()
+                rows=c.execute("select u.id user_id,u.name,m.sleep,m.mood,m.important,m.photo from morning_checkins m join users u on u.id=m.user_id where m.day=? and m.step='done' and m.mood!='' order by u.name",(s['today'](),)).fetchall()
             else:
-                rows=c.execute("select u.name,e.mood,e.highlight,e.satisfied,e.photo from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.step='done' and e.mood!='' order by u.name",(s['today'](),)).fetchall()
+                rows=c.execute("select u.id user_id,u.name,e.mood,e.highlight,e.satisfied,e.photo from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.step='done' and e.mood!='' order by u.name",(s['today'](),)).fetchall()
         facts=([{'name':r['name'],'sleep':r['sleep'],'mood':r['mood'],'words':r['important'][:150]} for r in rows[:12]] if morning else
                [{'name':r['name'],'mood':r['mood'],'words':r['highlight'][:150],'satisfied':r['satisfied']} for r in rows[:12]])
         story_prompt=('Ты Кими, ведущий школьного медиацентра TIMECODE. Ты пишешь ОДИН связный мини-рассказ от первого лица бота по реальным ответам детей, а не статистику. '
@@ -203,7 +226,7 @@ def install(s):
                   'Сегодня у микрофона было тихо. Ничего страшного: иногда лучший кадр остаётся за экраном. Хорошего вечера!')
         label=('☀️ <b>10:00 / ИСТОРИИ ЭТОГО УТРА</b>\n\n' if morning else '🌙 <b>20:30 / КАК ПРОШЁЛ ДЕНЬ</b>\n\n')
         broadcast(label+s['esc'](body))
-        broadcast_checkin_photos(rows)
+        broadcast_checkin_photos(rows,'am' if morning else 'pm')
 
     def tip():
         item = s['daily_content']('tip', True)
@@ -284,4 +307,4 @@ def install(s):
                 message='🎬 <b>СЕГОДНЯ ЗАНЯТИЕ / '+label+'</b>\n'+s['esc'](event['start'])+' · '+s['esc'](event['title'])+'\n'+s['esc'](event['place'])+'\n\nДмитрий Витальевич ждёт. Камеры зарядить; себя — по возможности тоже.'
                 broadcast(message)
 
-    s.update({'morning':morning,'evening':evening,'reminder':reminder,'digest':digest,'evening_digest':lambda:digest('pm'),'tip':tip,'mission':mission,'instant_photo':instant_photo,'photos_digest':photos_digest,'run_slot':run_slot,'weekly':weekly,'class_reminders':class_reminders,'publish_to_all':publish_to_all,'make_daily':make_daily,'retry_notifications':retry_notifications})
+    s.update({'morning':morning,'evening':evening,'reminder':reminder,'digest':digest,'evening_digest':lambda:digest('pm'),'tip':tip,'mission':mission,'instant_photo':instant_photo,'photos_digest':photos_digest,'run_slot':run_slot,'weekly':weekly,'class_reminders':class_reminders,'publish_to_all':publish_to_all,'make_daily':make_daily,'retry_notifications':retry_notifications,'broadcast_checkin_photos':broadcast_checkin_photos})
