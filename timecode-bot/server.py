@@ -44,6 +44,15 @@ SOURCE_SETS = (
     ('youtube.com','aputure.com','studiobinder.com','blog.frame.io'),
     ('nofilmschool.com','blog.frame.io','poynter.org','studiobinder.com'),
 )
+TIP_TOPICS = (
+    'съёмка на телефон: композиция, движение камеры или крупный план',
+    'свет на съёмке: окно, тени, контровой свет или простая лампа',
+    'чистый звук: микрофон, шум комнаты или запись интервью',
+    'текст для ролика: сильное начало, короткая подводка или закадровый текст',
+    'ведущий в кадре: речь, пауза, взгляд, жест или естественная подача',
+    'блогерский ролик: как удержать внимание в первые секунды',
+    'монтаж: переход, ритм или действие между двумя планами',
+)
 TIPS = [
  ('Второй подбородок', 'Снимаешь человека снизу? Только что подарил ему второй подбородок. Подними телефон до уровня глаз — герой оценит, даже если не знает почему.'),
  ('Тишина после ответа', 'Не выключай запись сразу после ответа героя. Оставь три секунды тишины: на монтаже скажешь себе спасибо.'),
@@ -322,14 +331,17 @@ def make_daily(kind):
     if kind=='tip':
         previous=[]
         with conn() as c:previous=[r['title'] for r in c.execute("select title from daily_content where kind='tip' order by day desc limit 10")]
-        sites=SOURCE_SETS[(now().date()-dt.date(2026,1,1)).days%len(SOURCE_SETS)]
-        query=ai_json('Ты редактор молодежного медиацентра. Придумай конкретную англоязычную поисковую фразу для необычного ПРАКТИЧЕСКОГО совета о съёмке на телефон, монтаже, репортаже или интервью. Ищи в заданных профессиональных медиа и у киноавторов. Не повторяй недавние темы. JSON {"query":"..."}.',json.dumps({'previous':previous,'sites':sites,'day':today()},ensure_ascii=False),120)
-        topic=str((query or {}).get('query','filmmaking practical camera sound lighting tip'))[:110]
+        theme=TIP_TOPICS[(now().date()-dt.date(2026,1,1)).days%len(TIP_TOPICS)]
+        sites=('studiobinder.com','blog.frame.io','nofilmschool.com','poynter.org','youtube.com')
+        query=ai_json('Ты редактор TIMECODE. Каждый день ищешь ОДИН полезный киношный или блогерский приём, который школьник сможет попробовать с телефоном. Сегодняшняя область: '+theme+'. Составь точную англоязычную поисковую фразу для практической инструкции в профессиональном источнике. Не ищи обзор фильма, сериал, определение термина или общие рассуждения. Не повторяй последние темы. Верни JSON {"query":"..."}.',json.dumps({'previous':previous,'sites':sites,'day':today(),'theme':theme},ensure_ascii=False),140)
+        topic=str((query or {}).get('query','beginner filmmaking practical technique step by step'))[:110]
         found=industry_search(topic,sites)
         if not found:return default
-        drafted=ai_json('Ты остроумный автор TIMECODE. По фрагменту материала киноавтора или профильного медиа придумай короткий полезный совет для подростка с телефоном. Только то, что подтверждено во фрагменте; никаких вымышленных реплик автора или универсальных технических законов. Один неожиданный ход и лёгкая ирония, максимум 250 символов. Верни JSON {"title":"до 45 символов","body":"..."}.',json.dumps(found,ensure_ascii=False),290)
+        drafted=ai_json('Ты автор ежедневного выпуска TIMECODE для школьников. По найденному материалу напиши один ПРАКТИЧЕСКИЙ лайфхак о кино или блоге. Тема: '+theme+'. Переработай найденное своими словами, не копируй источник. Текст должен работать без чтения ссылки и без знания фильмов или сериалов. Первая короткая фраза — точное действие: что поставить, сказать, снять, записать или изменить. Вторая — что получится и почему это видно или слышно. Добавь лёгкую точную иронию, только если она не затмевает совет; не шути над ребёнком. Тон живой, на равных, без канцелярита и абстрактного «экспериментируй». Максимум 300 символов, 2–3 предложения. Опирайся только на данный фрагмент, не выдумывай источник. JSON {"title":"до 45 символов","body":"..."}.',json.dumps(found,ensure_ascii=False),360)
         title=str((drafted or {}).get('title','')).strip();body=str((drafted or {}).get('body','')).strip()
-        if 3<=len(title)<=55 and 40<=len(body)<=320:return {'title':title,'body':body,'mode':'text','source':found['url']}
+        if 3<=len(title)<=55 and 40<=len(body)<=320:
+            review=ai_json('Ты выпускающий редактор коротких лайфхаков для школьников. Проверь текст строго. ok=true только если: 1) есть конкретное действие, которое школьник сможет повторить телефоном или перед камерой сегодня; 2) объяснён ощутимый результат; 3) приём подтверждён приведённым фрагментом источника; 4) нет непонятной отсылки к сериалу, кино или профессиональному жаргону без объяснения; 5) юмор не мешает инструкции. Иначе ok=false. Ответ JSON {"ok":true}.',json.dumps({'source':found['snippet'],'title':title,'body':body},ensure_ascii=False),100)
+            if (review or {}).get('ok') is True:return {'title':title,'body':body,'mode':'text','source':found['url']}
         return default
     previous=[]
     with conn() as c:previous=[dict(r) for r in c.execute("select title,mode from daily_content where kind='mission' order by day desc limit 10")]
