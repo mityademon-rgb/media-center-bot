@@ -115,12 +115,23 @@ class BotTests(unittest.TestCase):
 
     def test_ai_searches_source_and_generates_new_tip(self):
         server.AI_KEY='testing-key'
-        with patch.object(server,'creative_enabled',return_value=True), patch.object(server,'industry_search',return_value={'title':'Camera angle','snippet':'A camera angle refers to the placement of a film camera in relation to the subject.','url':'https://www.studiobinder.com/blog/camera-angle/'}) as lookup,patch.object(server,'ai_json',side_effect=[{'query':'camera angle cinematography'},{'title':'Выбери ракурс','body':'Ракурс камеры меняет точку зрения на героя. Выбери его прежде, чем нажать запись.'}]) as model:
+        with patch.object(server,'creative_enabled',return_value=True), patch.object(server,'industry_search',return_value={'title':'Camera angle','snippet':'A camera angle refers to the placement of a film camera in relation to the subject.','url':'https://www.studiobinder.com/blog/camera-angle/'}) as lookup,patch.object(server,'ai_json',side_effect=[{'query':'camera angle cinematography'},{'title':'Выбери ракурс','body':'Ракурс камеры меняет точку зрения на героя. Выбери его прежде, чем нажать запись.'},{'ok':True}]) as model:
             item=server.make_daily('tip')
         self.assertEqual(lookup.call_args.args[0],'camera angle cinematography')
-        self.assertEqual(model.call_count,2)
+        self.assertEqual(model.call_count,3)
         self.assertEqual(item['source'],'https://www.studiobinder.com/blog/camera-angle/')
         server.AI_KEY=''
+
+    def test_tip_editor_rejects_non_actionable_reference(self):
+        server.AI_KEY='testing-key'
+        try:
+            with patch.object(server,'creative_enabled',return_value=True), \
+                 patch.object(server,'industry_search',return_value={'title':'Film review','snippet':'Camera tips for filming a scene with a phone in daylight.','url':'https://www.studiobinder.com/blog/camera-angle/'}), \
+                 patch.object(server,'ai_json',side_effect=[{'query':'phone filming technique'}, {'title':'Отсылка к сериалу','body':'Вспомни любимый сериал и снимай как там. Получится красиво и интересно.'}, {'ok':False}]):
+                item=server.make_daily('tip')
+            self.assertEqual(item['source'],'')
+            self.assertNotIn('сериалу',item['body'])
+        finally:server.AI_KEY=''
 
     def test_search_excludes_sites_outside_film_sources(self):
         server.AI_KEY='testing-key'
