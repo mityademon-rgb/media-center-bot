@@ -38,6 +38,19 @@ class BotTests(unittest.TestCase):
         with self.assertRaises(__import__('sqlite3').ProgrammingError):
             c.execute('select 1')
 
+    def test_daily_photo_unreadable_still_publishes_with_caption_and_teacher(self):
+        with server.conn() as c:
+            c.execute('insert into daily_photos(user_id,day,photo,created) values(?,?,?,?)',(42,server.today(),'photo-test',1))
+        with patch.object(server,'photo_comment',return_value=''),patch.object(server,'send_attachment',return_value={'ok':True}) as delivery:
+            server.publish_daily_photo(42,server.today())
+        recipients={call.args[0] for call in delivery.call_args_list}
+        self.assertTrue({11,42,'-10042'}.issubset(recipients))
+        caption=delivery.call_args.args[2]
+        self.assertIn('Матвей',caption);self.assertIn('Рассмотрите снимок',caption)
+        self.assertNotIn('вслепую',caption)
+        with server.conn() as c:row=c.execute('select status from daily_photos').fetchone()
+        self.assertEqual(row['status'],'done')
+
     def test_evening_digest_retries_failed_delivery_without_duplicate(self):
         scope=vars(server).copy()
         scope['GROUP']=''
