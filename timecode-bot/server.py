@@ -286,17 +286,17 @@ def photo_comment(file_id,photo_url=''):
         if fetched.returncode or not 0<len(fetched.stdout)<=4_000_000:return ''
         mime='image/jpeg' if fetched.stdout.startswith(b'\xff\xd8') else 'image/png' if fetched.stdout.startswith(b'\x89PNG') else ''
         if not mime:return ''
-        content=[{'type':'text','text':('Ты редактор TIMECODE. Посмотри на реальный кадр ученика. Напиши ровно два коротких предложения по-русски. '
+        content=[{'type':'text','text':('Ты TIMECODE, ведущий медиацентра. Посмотри на реальный кадр ученика и поговори с ребятами о нём: 3–4 связанных предложения по-русски, до 550 знаков. '
                                          'Сначала конкретно оцени фотографию: композицию, свет, ракурс или то, как кадр рассказывает историю. '
                                          'Хвали только видимое и конкретное; если есть проблема, предложи одно понятное улучшение. '
-                                         'Во втором предложении добавь остроумное, чуть ворчливое наблюдение по видимым деталям. '
+                                         'Затем плавно перейди к тому, что в этом кадре интересно заметить. Можно добавить одно точное остроумное наблюдение по видимым деталям. '
                                          'Общайся на равных, без сюсюканья, набора эмодзи и картонных шуток: если сильной шутки нет, обойдись наблюдением. '
-                                         'Не выдумывай детали и не оценивай внешность или личность людей. Только две фразы без кавычек.')},
+                                         'Не выдумывай детали и не оценивай внешность или личность людей. Без названия рубрики и имени автора: их добавит бот. Если изображение не видно, верни пустую строку, без сообщения об ошибке.')},
                  {'type':'image_url','image_url':{'url':'data:'+mime+';base64,'+base64.b64encode(fetched.stdout).decode('ascii')}}]
-        data=kimi_request('/chat/completions',{'model':VISION_MODEL,'max_tokens':220,'messages':[{'role':'user','content':content}],
+        data=kimi_request('/chat/completions',{'model':VISION_MODEL,'max_tokens':400,'messages':[{'role':'user','content':content}],
                                                **({'thinking':{'type':'disabled'}} if VISION_MODEL.startswith('kimi-k2.') else {})},timeout=30)
         result=' '.join(str(data['choices'][0]['message']['content']).strip().strip('"«»').split())
-        return result[:440] if 25<=len(result)<=600 else ''
+        return result if 25<=len(result)<=600 else ''
     except Exception as error:
         print('Kimi photo:',type(error).__name__,flush=True)
         return ''
@@ -421,11 +421,12 @@ def mission():
     send(GROUP,'🎬 <b>СТРАННОЕ ЗАДАНИЕ</b>\n\n<b>'+esc(item['title'])+'</b>\n\n<b>Kids Lab:</b> '+esc(kids)+'\n<b>Media Lab:</b> '+esc(media),[[{'text':'Ответить боту ↗','url':'https://t.me/'+BOTNAME+'?start=mission'}]])
 
 def instant_photo():
-    message=('📷 <b>КАДР ДНЯ</b>\nСними то, что прямо сейчас вокруг тебя. Один кадр — без декораций и постановочного геройства. '
-             'Пришли фото в этот чат: посмотрю на композицию и свет, затем покажу кадр остальным сразу после ответа. '
+    message=('📷 <b>16:00 / КАДР ДНЯ</b>\n\nДрузья, давайте посмотрим, у кого что сейчас перед глазами. '
+             'Сними один кадр того, что перед тобой, и пришли сюда. Как только получу снимок, опубликую его здесь в чате бота '
+             'с твоим именем и своей репликой. Его увидят остальные подписчики в этом мессенджере, в том числе преподаватель. '
              'В кадре люди? Сначала спроси их согласия. Участвовать можно по желанию.')
     with conn() as c:
-        users=c.execute("select id from users where role!='admin'").fetchall()
+        users=c.execute("select id from users where role!='admin' and enabled=1").fetchall()
         done={r['user_id'] for r in c.execute('select user_id from daily_photos where day=?',(today(),))}
     for u in users:
         if u['id'] in done:continue
@@ -441,14 +442,12 @@ def publish_daily_photo(uid,day):
     if not row:return
     try:
         commentary=photo_comment(row['photo'],row['photo_url'])
-        if not commentary:
-            commentary='Композицию и свет сейчас не могу оценить честно: кадр не удалось рассмотреть. Критиковать вслепую — сомнительный талант.'
-        caption='КАДР ДНЯ · '+row['name']+'\n'+commentary
+        caption=editorial_voice.photo_caption(row['name'],commentary,day)
         targets=[r['id'] for r in subscribers]
         if GROUP:targets.append(GROUP)
         with conn() as c:
             for target in set(targets):
-                if (target<0)!=(uid<0) or row['photo']=='max:image:received':continue
+                if (isinstance(target,int) and target<0)!=(uid<0) or row['photo']=='max:image:received':continue
                 c.execute('insert or ignore into notification_photo_outbox(day,period,chat,user_id,photo,caption) values(?,?,?,?,?,?)',
                           (day,'daily',json.dumps(target),uid,row['photo'],caption))
             c.execute("update daily_photos set comment=?,status='queued' where user_id=? and day=?",(commentary,uid,day))
@@ -466,7 +465,7 @@ def accept_daily_photo(uid,msg):
         if inserted:c.execute("update users set stage='' where id=? and stage='instant'",(uid,))
     if not inserted:
         send(uid,'Кадр дня уже получил. Второй прибереги на завтра: серия тоже требует монтажа.');return
-    send(uid,'Кадр принят. Посмотрю, что в нём работает, и покажу остальным — без ожидания вечернего выпуска.')
+    send(uid,'Получил твой кадр. Сейчас покажу его с твоим именем и моей репликой всем подписчикам в этом мессенджере — он появится прямо здесь, в чате бота.')
     threading.Thread(target=publish_daily_photo,args=(uid,day),daemon=True).start()
 
 def recover_daily_photos():
@@ -585,6 +584,7 @@ def scheduler():
             if clock=='20:30':run_slot('digest-pm',lambda:digest('pm'))
             if t.weekday() in (0,2) and clock=='16:00':run_slot('mission',mission)
             if clock=='16:00':run_slot('instant-photo',instant_photo)
+            if clock=='17:00':run_slot('chat-game',chat_game_invite)
             if t.weekday()==6 and clock=='17:00':run_slot('weekly-survey',weekly_survey)
             if t.weekday()==6 and clock=='18:00':run_slot('weekly',weekly)
             recover_daily_photos()
@@ -1270,8 +1270,11 @@ class Handler(BaseHTTPRequestHandler):
             except (KeyError,ValueError,AssertionError):return self.out({'error':'Проверьте дату и поля'},400)
         return self.out({'error':'Нет доступа'},403)
 
+import editorial_voice
 import notification_delivery
 notification_delivery.install(globals())
+import chat_games
+chat_games.install(globals())
 
 if __name__=='__main__':
     if not SECRET or len(SECRET)<32:raise SystemExit('Set SECRET to at least 32 random characters')
