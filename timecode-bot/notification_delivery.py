@@ -44,7 +44,7 @@ def install(s):
 
     def retry_photos():
         with s['conn']() as c:
-            rows=c.execute('select day,period,chat,user_id,photo,caption from notification_photo_outbox where day>=? and delivered=0 order by day,period,chat limit 40',
+            rows=c.execute("select day,period,chat,user_id,photo,caption from notification_photo_outbox where day>=? and delivered=0 order by day,period,chat,case when caption like '%20:30 / КАК ПРОШЁЛ ДЕНЬ%' or caption like '%10:00 / ИСТОРИИ ЭТОГО УТРА%' then 0 else 1 end,user_id limit 40",
                            ((s['now']().date()-dt.timedelta(days=1)).isoformat(),)).fetchall()
         for row in rows:
             try:
@@ -66,6 +66,13 @@ def install(s):
     def broadcast_checkin_photos(rows,period,story=None):
         label='📸 КАДР УТРА · ' if period=='am' else '📸 КАДР ВЕЧЕРА · '
         text_only=[]
+        media_chats=[]
+        plain=html.unescape(re.sub(r'</?b>','',story or ''))
+        cut=len(plain)
+        if cut>895:
+            boundaries=[m.end() for m in re.finditer(r'[.!?](?:\s|$)',plain[:895])]
+            cut=boundaries[-1] if boundaries else plain.rfind(' ',0,895)
+        first=plain[:cut].strip();continuation=plain[cut:].strip()
         with s['conn']() as c:
             for chat in destinations():
                 attached=False
@@ -75,13 +82,15 @@ def install(s):
                     from_max=photo.startswith('max:image:')
                     to_max=isinstance(chat,int) and chat<0
                     if from_max!=to_max or photo=='max:image:received':continue
-                    caption=(html.unescape(re.sub(r'</?b>','',story))[:950] if story and not attached else label+row['name'][:75])
+                    caption=(first+'\n\nКадр: '+row['name'][:45] if story and not attached else label+row['name'][:75])
                     c.execute('insert or ignore into notification_photo_outbox(day,period,chat,user_id,photo,caption) values(?,?,?,?,?,?)',
                               (s['today'](),period,json.dumps(chat),row['user_id'],photo,caption))
                     attached=True
                 if not attached:text_only.append(chat)
+                else:media_chats.append(chat)
         if story and text_only:broadcast(story,chats=text_only)
         retry_photos()
+        if continuation and media_chats:broadcast(s['esc'](continuation),chats=media_chats)
 
     def publish_to_all(msg, body):
         """Send a teacher's message or Telegram media to every enrolled user and the adult chat."""
