@@ -51,6 +51,15 @@ class BotTests(unittest.TestCase):
         with server.conn() as c:row=c.execute('select status from daily_photos').fetchone()
         self.assertEqual(row['status'],'done')
 
+    def test_admin_menu_has_persistent_write_to_all_button(self):
+        with patch.object(server,'api',return_value={'ok':True}) as api,patch.object(server,'send',return_value={'ok':True}):
+            result=server.admin_menu(11)
+        payload=api.call_args.args[1]
+        self.assertTrue(payload['reply_markup']['is_persistent'])
+        self.assertFalse(payload['reply_markup']['one_time_keyboard'])
+        self.assertEqual(payload['reply_markup']['keyboard'][0][0]['text'],'📣 Написать всем')
+        self.assertTrue(result['ok'])
+
     def test_evening_digest_retries_failed_delivery_without_duplicate(self):
         scope=vars(server).copy()
         scope['GROUP']=''
