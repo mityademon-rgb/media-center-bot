@@ -77,14 +77,24 @@ def install(s):
                         'Вопрос до 220 знаков, вариант до 60, объяснение why — 2 полных предложения до 250 знаков. skill — конкретное действие в инфинитиве (например «оставлять место перед взглядом»). '
                         'Пиши по-русски, разговорно, без сложных терминов. Ситуации с телефоном, съёмкой, интервью школьников; никаких дорогих устройств. '
                         'Не устраивай ловушки, не проверяй вкусы и не задавай вопросы без однозначного решения. Не используй односложные или обрывочные объяснения. '
+                        'У вопроса про кадр должна быть конкретная задача: показать место, эмоцию, оставить пространство перед взглядом или применить названное правило. Не спрашивай абстрактно «как красивее». '
                         'Ошибочные ответы должны быть правдоподобными действиями, без абсурдных шуток. Меняй позицию правильного ответа. '
                         'Верни JSON {"questions":[{"q":"...","options":["...","...","..."],"correct":0,"why":"...","skill":"..."}]} с пятью вопросами. correct — индекс 0, 1 или 2.')
-                generated=s['ai_json'](prompt,json.dumps({'date':day,'principles':principles,'previous_questions':[q['q'] for batch in previous for q in batch]},ensure_ascii=False),1900)
-                questions=(generated or {}).get('questions')
-                if valid_questions(questions):
-                    checked=s['ai_json']('Проверь игру для школьников по принципам урока. ok=true только если ВСЕ пять вопросов простые, имеют ровно один лучший ответ, correct указывает именно на него, объяснение верно и варианты не двусмысленны. Иначе ok=false. Верни JSON {"ok":true}.',json.dumps({'principles':principles,'questions':questions},ensure_ascii=False),120)
+                request={'date':day,'principles':principles,'previous_questions':[q['q'] for batch in previous for q in batch]}
+                for attempt in range(2):
+                    generated=s['ai_json'](prompt,json.dumps(request,ensure_ascii=False),2100)
+                    questions=(generated or {}).get('questions')
+                    if not valid_questions(questions):
+                        request['editor_note']='Не прошла проверка структуры: нужны 5 вопросов, 3 коротких варианта, правильный индекс 0–2, понятное объяснение 35–300 знаков и конкретный навык 10–120 знаков. Исправь форматы и длины, не сокращай объяснения до обрывков.'
+                        request['draft']=questions
+                        print('Chat game revision:',topic,'structure',flush=True)
+                        continue
+                    checked=s['ai_json']('Проверь игру для школьников по принципам урока. ok=true если все пять вопросов простые, в указанной ситуации есть один лучший ответ, correct указывает на него, объяснение верно. Отклоняй фактические ошибки и реальные двусмысленности. Не отвергай конкретную учебную ситуацию только потому, что в искусстве бывают исключения. При ok=false кратко укажи причину для автора. Верни JSON {"ok":true,"reason":""}.',json.dumps({'principles':principles,'questions':questions},ensure_ascii=False),220)
                     if (checked or {}).get('ok') is True:
-                        result={**GAMES[topic],'questions':questions};source='kimi'
+                        result={**GAMES[topic],'questions':questions};source='kimi';break
+                    request['editor_note']=str((checked or {}).get('reason') or 'Уточни задачу в каждом вопросе, чтобы был ровно один лучший ответ.')[:500]
+                    request['draft']=questions
+                    print('Chat game revision:',topic,'editorial',flush=True)
             with s['conn']() as c:
                 c.execute('insert or ignore into chat_game_content(day,topic,body,source) values(?,?,?,?)',(day,topic,json.dumps(result,ensure_ascii=False),source))
                 saved=c.execute('select body from chat_game_content where day=? and topic=?',(day,topic)).fetchone()
