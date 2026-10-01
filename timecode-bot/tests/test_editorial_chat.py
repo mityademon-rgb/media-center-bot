@@ -46,6 +46,34 @@ class ChatTests(unittest.TestCase):
         texts=[call.args[1] for call in self.s['send'].call_args_list]
         self.assertTrue(any('Матвей, твой результат: 5/5' in t and 'Молодец' in t for t in texts))
         self.assertTrue(any('Саша, твой результат: 5/5' in t for t in texts))
+        with self.conn() as c:posts=c.execute('select body from notification_outbox').fetchall()
+        self.assertEqual(len(posts),4)
+        self.assertTrue(all('Ответ:' in r['body'] for r in posts))
+
+    def test_kimi_creates_and_caches_daily_questions(self):
+        import copy
+        questions=copy.deepcopy(chat_games.GAMES['f']['questions'])
+        questions[0]['q']='Снимаешь друга у входа в студию: видны и он целиком, и само здание. Какой план у тебя получился?'
+        self.s['AI_KEY']='test'
+        self.s['ai_json']=Mock(side_effect=[{'questions':questions},{'ok':True}, {'questions':chat_games.GAMES['i']['questions']},{'ok':True}])
+        self.s['chat_game_prepare']();self.s['chat_game_prepare']()
+        self.assertEqual(self.s['ai_json'].call_count,4)
+        with self.conn() as c:rows=c.execute('select source,body from chat_game_content').fetchall()
+        self.assertEqual([r['source'] for r in rows],['kimi','kimi'])
+        self.assertEqual(json.loads(rows[0]['body'])['questions'][0]['q'],questions[0]['q'])
+
+    def test_invalid_kimi_questions_use_safe_backup(self):
+        self.s['AI_KEY']='test';self.s['ai_json']=Mock(return_value={'questions':[{'q':'Broken'}]})
+        self.s['chat_game_prepare']()
+        with self.conn() as c:rows=c.execute('select source,body from chat_game_content').fetchall()
+        self.assertTrue(all(r['source']=='backup' and len(json.loads(r['body'])['questions'])==5 for r in rows))
+
+    def test_evening_story_includes_game_participants_even_without_checkin(self):
+        self.answer(42,'f',0,0)
+        self.s['AI_KEY']=''
+        story=editorial_voice.story(self.s,[],False)
+        self.assertIn('Матвей',story);self.assertIn('Все молодцы',story)
+        self.assertNotIn('все ответили верно',story)
 
     def test_wrong_answers_get_specific_advice_and_resume_after_restart(self):
         self.answer(42,'f',0,1)
