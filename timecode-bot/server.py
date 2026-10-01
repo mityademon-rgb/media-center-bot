@@ -29,7 +29,7 @@ MAX_TOKEN = os.getenv('MAX_BOT_TOKEN', '')
 MAX_WEBHOOK_SECRET = os.getenv('MAX_WEBHOOK_SECRET', '')
 BASE = os.getenv('BASE_URL', '').rstrip('/')
 GROUP = os.getenv('PUBLIC_CHAT_ID', '')
-ADMINS = {int(x) for x in os.getenv('ADMIN_IDS', '').split(',') if x.strip().isdigit()}
+ADMINS = {int(x) for x in os.getenv('ADMIN_IDS', '').split(',') if x.strip().lstrip('-').isdigit()}
 DB = Path(os.getenv('DATABASE', str(ROOT / 'data/timecode.db'))).resolve()
 SECRET = os.getenv('SECRET', '')
 JOIN = os.getenv('JOIN_SECRET', '')
@@ -608,7 +608,13 @@ def admin_buttons():
 def admin_menu(uid):
     if uid not in ADMINS:return
     if uid>0:
-        return send(uid,'🎛 <b>УПРАВЛЕНИЕ TIMECODE</b>\nКнопка «Написать всем» — прямо под этим сообщением.',admin_buttons())
+        keyboard={'keyboard':[[{'text':'📣 Написать всем'},{'text':'👥 Подписчики'}],
+                              [{'text':'🎛 Управление'},{'text':'❓ Вопросы'}]],
+                  'resize_keyboard':True,'is_persistent':True,'one_time_keyboard':False}
+        result=api('sendMessage',{'chat_id':uid,'text':'Управление TIMECODE. Кнопка «📣 Написать всем» теперь находится на постоянной клавиатуре внизу чата, под полем сообщения. Нажми её и отправь текст — я разошлю его подписчикам Telegram и MAX.',
+                                  'reply_markup':keyboard})
+        send(uid,'<b>Панель преподавателя</b>\nЗдесь тоже можно начать рассылку или посмотреть участников.',admin_buttons())
+        return result
     else:
         return send(uid,'🎛 Управление TIMECODE',admin_buttons())
 
@@ -708,6 +714,8 @@ def bot_message(msg):
         admin_menu(uid);return
     if uid in ADMINS and text in ('/subscribers','👥 Подписчики'):
         subscriber_report(uid);return
+    if uid in ADMINS and text in ('/questions','❓ Вопросы'):
+        callback({'id':'max','from':{'id':uid},'data':'admin:questions'});return
     if uid in ADMINS and text in ('/publish','📣 Написать всем'):
         with conn() as c:c.execute("update users set stage='admin_publish' where id=?",(uid,))
         send(uid,'📣 Напиши сообщение или отправь фото, видео либо документ. Бот разошлёт его всем лично и продублирует во взрослый чат, если тот подключён. /stop — отмена.')
