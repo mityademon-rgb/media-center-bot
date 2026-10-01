@@ -4,10 +4,12 @@ import hashlib
 import html
 import json
 import re
+import editorial_voice
 
 
 def install(s):
     original_evening=s['evening']
+    original_instant_photo=s['instant_photo']
     def audience():
         with s['conn']() as c:
             return [r['id'] for r in c.execute('select id from users where enabled=1')]
@@ -73,7 +75,7 @@ def install(s):
                     from_max=photo.startswith('max:image:')
                     to_max=isinstance(chat,int) and chat<0
                     if from_max!=to_max or photo=='max:image:received':continue
-                    caption=(story[:950] if story and not attached else label+row['name'][:75])
+                    caption=(html.unescape(re.sub(r'</?b>','',story))[:950] if story and not attached else label+row['name'][:75])
                     c.execute('insert or ignore into notification_photo_outbox(day,period,chat,user_id,photo,caption) values(?,?,?,?,?,?)',
                               (s['today'](),period,json.dumps(chat),row['user_id'],photo,caption))
                     attached=True
@@ -189,51 +191,9 @@ def install(s):
                 rows=c.execute("select u.id user_id,u.name,m.sleep,m.mood,m.important,m.photo from morning_checkins m join users u on u.id=m.user_id where m.day=? and m.step='done' and m.mood!='' order by u.name",(s['today'](),)).fetchall()
             else:
                 rows=c.execute("select u.id user_id,u.name,e.mood,e.highlight,e.satisfied,e.photo from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.step='done' and e.mood!='' order by u.name",(s['today'](),)).fetchall()
-        facts=([{'name':r['name'],'sleep':r['sleep'],'mood':r['mood'],'words':r['important'][:150]} for r in rows[:12]] if morning else
-               [{'name':r['name'],'mood':r['mood'],'words':r['highlight'][:150],'satisfied':r['satisfied']} for r in rows[:12]])
-        story_prompt=('Ты Кими, ведущий школьного медиацентра TIMECODE. Ты пишешь ОДИН связный мини-рассказ от первого лица бота по реальным ответам детей, а не статистику. '
-                      'Сначала интересный заход, затем вплети конкретные ответы участников с именами в общую историю, свяжи их переходами и закончи живой фразой. '
-                      'История должна двигаться, как маленькая редакционная колонка: никакого списка, пунктов, сухого пересказа анкет, подсчётов, повторения вопроса и заголовков внутри текста. '
-                      'Ты НЕ наблюдал детей, а лишь прочитал их ответы в боте. Используй только переданные факты. Запрещены придуманные действия, жесты, разговоры, знакомства, связи детей между собой, место событий, прямая речь, причины настроения, оценки личности, кофе, нытьё и содержание фото. Не называй день недели, даже если знаешь дату. '
-                      'Шути над обстоятельствами и собственной ролью ведущего, но не над детьми; не приписывай детям негативных поступков. '
-                      +('Сегодня утренний выпуск. В финале ОБЯЗАТЕЛЬНО пообещай вернуться с простым лайфхаком в 15:00. ' if morning else
-                        'Сегодня вечерний выпуск. Закончи пожеланием хорошего вечера или выходных, если пятница. ')+
-                      'Текст 300–650 знаков, без HTML и Markdown. Верни JSON {"text":"..."}.')
-        drafted=s['ai_json'](story_prompt,json.dumps({'date':day_label(),'weekday':s['now']().weekday(),'answers':facts},ensure_ascii=False),500) if rows and s['AI_KEY'] else None
-        generated=str((drafted or {}).get('text','')).strip()
-        if generated:
-            fact_check=('Ты фактчекер школьного медиацентра. Проверь черновик строго по JSON с ответами детей. '
-                        'Убери ВСЕ утверждения о действиях, знакомствах, местах, репликах, причинах настроения, кофе, нытье, характеристиках личности и неверном дне недели '
-                        'и событиях, которых нет в ответах. Связный рассказ, лёгкая ирония и имена сохраняются. '
-                        'Не приписывай детям новых привычек и не оценивай их. Никаких списков. Верни JSON {"text":"исправленный связный текст"}. '
-                        +('Последняя фраза — обещание лайфхака ровно в 15:00.' if morning else
-                          'Последняя фраза — пожелание хорошего вечера или выходных в пятницу.'))
-            checked=s['ai_json'](fact_check,json.dumps({'answers':facts,'draft':generated},ensure_ascii=False),500)
-            generated=str((checked or {}).get('text','')).strip()
-        named=[r['name'] for r in rows if (r['important'] if morning else r['highlight']) and (r['important'] if morning else r['highlight'])!='Не было']
-        bad_format=re.search(r'<[^>]+>|(?:^|\n)\s*(?:[•*\-]|\d+[.)])|(?:На связи|Выспались:|Настроение:|Довольны днём:|кофеин|ныть|сосед[ия]|полз|влетел|схватил)',generated,re.I)
-        weekdays=('понедельник','вторник','среда','четверг','пятница','суббота','воскресенье')
-        if any(re.search(word[:-1],generated,re.I) for index,word in enumerate(weekdays) if index!=s['now']().weekday()):bad_format=True
-        if generated and 180<=len(generated)<=850 and not bad_format and all(name in generated for name in named[:5]):
-            body=generated
-            if morning and '15:00' not in body:body+=' В 15:00 вернусь с лайфхаком.'
-        elif rows:
-            if morning:
-                opening='Сегодняшнее утро складывается из разных историй, и я собираю их как кадры одного фильма. '
-                details=[r['name']+' пишет о сегодняшнем: «'+r['important'][:120].rstrip(' .!')+'». ' for r in rows if r['important']]
-                if not details:details=[r['name']+' отмечает: настроение '+r['mood'].lower()+'.' for r in rows[:4]]
-                ending=' Вот и первый кадр дня: разные планы, один общий эфир. Спасибо за откровенность и снимки утра. В 15:00 вернусь с простым лайфхаком.'
-            else:
-                opening='У каждого дня есть свои маленькие титры. Сегодня в них попали разные истории: '
-                details=[r['name']+' вспоминает: «'+r['highlight'][:120].rstrip(' .!')+'». ' for r in rows if r['highlight'] and r['highlight']!='Не было']
-                if not details:details=['Ребята поделились настроением дня — и это уже повод закончить его вместе.']
-                ending=' Совместить эти сюжеты в одном фильме было бы непросто. Зато в нашем эфире они встретились. '+('Хороших выходных!' if s['now']().weekday()==4 else 'Хорошего вечера!')
-            body=opening+' А '.join(part.strip() for part in details[:6])+ending
-        else:
-            body=('Утром в редакции пока тихо. Даже хорошие истории иногда начинаются с паузы. В 15:00 вернусь с лайфхаком.' if morning else
-                  'Сегодня у микрофона было тихо. Ничего страшного: иногда лучший кадр остаётся за экраном. Хорошего вечера!')
+        body=editorial_voice.story(s,rows,morning)
         label=('☀️ <b>10:00 / ИСТОРИИ ЭТОГО УТРА</b>\n\n' if morning else '🌙 <b>20:30 / КАК ПРОШЁЛ ДЕНЬ</b>\n\n')
-        broadcast_checkin_photos(rows,'am' if morning else 'pm',label+body)
+        broadcast_checkin_photos(rows,'am' if morning else 'pm',label+s['esc'](body))
 
     def tip():
         item = s['daily_content']('tip', True)
@@ -248,10 +208,7 @@ def install(s):
                   [[{'text':'Ответить боту ↗','url':'https://t.me/'+s['BOTNAME']+'?start=mission'}]])
 
     def instant_photo():
-        if not s['BOTNAME']: return
-        with s['conn']() as c: c.execute("update users set stage='instant' where enabled=1 and stage=''")
-        broadcast('📸 <b>МГНОВЕННОЕ ФОТО</b>\nСфоткай то, что прямо сейчас перед тобой. Один кадр, без подготовки. Присылай до 20:00 — вечером соберём общую подборку. Если в кадре люди, спроси их согласия.',
-                  [[{'text':'Отправить кадр боту ↗','url':'https://t.me/'+s['BOTNAME']+'?start=instant'}]])
+        original_instant_photo()
 
     def photos_digest():
         with s['conn']() as c:
