@@ -603,15 +603,17 @@ def roster(uid,name):
 def admin_buttons():
     return [[{'text':'📣 Написать всем','callback_data':'admin:publish'},
              {'text':'👥 Подписчики','callback_data':'admin:subscribers:0'}],
-            [{'text':'❓ Вопросы','callback_data':'admin:questions'}]]
+            [{'text':'📅 Расписание','callback_data':'admin:schedule'},
+             {'text':'❓ Вопросы','callback_data':'admin:questions'}]]
 
 def admin_menu(uid):
     if uid not in ADMINS:return
     if uid>0:
         keyboard={'keyboard':[[{'text':'📣 Написать всем'},{'text':'👥 Подписчики'}],
+                              [{'text':'📅 Расписание'}],
                               [{'text':'🎛 Управление'},{'text':'❓ Вопросы'}]],
                   'resize_keyboard':True,'is_persistent':True,'one_time_keyboard':False}
-        result=api('sendMessage',{'chat_id':uid,'text':'Управление TIMECODE. Кнопка «📣 Написать всем» теперь находится на постоянной клавиатуре внизу чата, под полем сообщения. Нажми её и отправь текст — я разошлю его подписчикам Telegram и MAX.',
+        result=api('sendMessage',{'chat_id':uid,'text':'Управление TIMECODE. «📅 Расписание» и «📣 Написать всем» находятся на постоянной клавиатуре под полем сообщения. Расписание можно изменить прямо в чате; после сохранения я сразу сообщу об изменении всем подписчикам Telegram и MAX.',
                                   'reply_markup':keyboard})
         send(uid,'<b>Панель преподавателя</b>\nЗдесь тоже можно начать рассылку или посмотреть участников.',admin_buttons())
         return result
@@ -768,13 +770,14 @@ def bot_message(msg):
         try:
             left,title,place=(s.strip() for s in text[8:].split('|',2));lab,day,at=left.split();days=['пн','вт','ср','чт','пт','сб','вс'];weekday=days.index(day.lower());assert lab in ('kids','media');dt.time.fromisoformat(at)
             with conn() as c:c.execute('insert into lessons(lab,weekday,start,title,place) values(?,?,?,?,?)',(lab,weekday,at,title,place))
+            schedule_changed(lab,day+' '+at+' · '+title+' · '+place)
             send(uid,'Занятие добавлено.');return
         except (ValueError,AssertionError):send(uid,'Формат: /lesson kids Пн 18:00 | Тема | Кабинет');return
     if uid in ADMINS and (text.startswith('/change ') or text.startswith('/cancel ')):
         try:
             cancel=text.startswith('/cancel ');part=text.split(' ',1)[1];left,title,place=(s.strip() for s in part.split('|',2)) if not cancel else (part.strip(),'Отмена','');lab,day,*rest=left.split();at=rest[0] if rest else '00:00';dt.date.fromisoformat(day);dt.time.fromisoformat(at);assert lab in ('kids','media')
             with conn() as c:c.execute('insert into overrides(day,lab,start,title,place,cancelled) values(?,?,?,?,?,?)',(day,lab,at,title,place,int(cancel)))
-            if GROUP:send(GROUP,'📌 <b>ИЗМЕНЕНИЕ РАСПИСАНИЯ / '+('KIDS LAB' if lab=='kids' else 'MEDIA LAB')+'</b>\n'+esc(day)+' · '+('занятие отменено' if cancel else esc(at)+' · '+esc(title)+' · '+esc(place)))
+            schedule_changed(lab,day+' · '+('занятие отменено' if cancel else at+' · '+title+' · '+place))
             send(uid,'Изменение сохранено.');return
         except (ValueError,AssertionError):send(uid,'Формат: /change kids 2026-10-01 18:00 | Новая тема | Кабинет');return
     caption=(msg.get('caption') or '').strip()
@@ -1266,6 +1269,7 @@ class Handler(BaseHTTPRequestHandler):
                 assert lab in ('kids','media') and 0<=day<=6 and 1<=len(title)<=90
                 dt.time.fromisoformat(at)
                 with conn() as c:c.execute('insert into lessons(lab,weekday,start,title,place) values(?,?,?,?,?)',(lab,day,at,title,place[:80]))
+                schedule_changed(lab,['Пн','Вт','Ср','Чт','Пт','Сб','Вс'][day]+' '+at+' · '+title+' · '+place[:80])
                 return self.out({'ok':True})
             except (KeyError,ValueError,AssertionError):return self.out({'error':'Проверьте дату и поля'},400)
         if path=='/api/override' and u['role']=='admin':
@@ -1273,7 +1277,7 @@ class Handler(BaseHTTPRequestHandler):
                 lab=str(p['lab']);day=str(p['day']);at=str(p['start']);title=str(p.get('title','')).strip() or 'Занятие';place=str(p.get('place',''))[:80];cancel=int(bool(p.get('cancelled')))
                 assert lab in ('kids','media');dt.date.fromisoformat(day);dt.time.fromisoformat(at)
                 with conn() as c:c.execute('insert into overrides(day,lab,start,title,place,cancelled) values(?,?,?,?,?,?)',(day,lab,at,title[:90],place,cancel))
-                if GROUP:send(GROUP,'📌 <b>ИЗМЕНЕНИЕ РАСПИСАНИЯ / '+('KIDS LAB' if lab=='kids' else 'MEDIA LAB')+'</b>\n'+esc(day)+' · '+('занятие отменено' if cancel else esc(at)+' · '+esc(title[:90])+' · '+esc(place)))
+                schedule_changed(lab,day+' · '+('занятие отменено' if cancel else at+' · '+title[:90]+' · '+place))
                 return self.out({'ok':True})
             except (KeyError,ValueError,AssertionError):return self.out({'error':'Проверьте дату и поля'},400)
         return self.out({'error':'Нет доступа'},403)
@@ -1283,6 +1287,8 @@ import notification_delivery
 notification_delivery.install(globals())
 import chat_games
 chat_games.install(globals())
+import chat_schedule
+chat_schedule.install(globals())
 
 if __name__=='__main__':
     if not SECRET or len(SECRET)<32:raise SystemExit('Set SECRET to at least 32 random characters')
