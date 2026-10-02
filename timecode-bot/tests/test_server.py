@@ -38,18 +38,14 @@ class BotTests(unittest.TestCase):
         with self.assertRaises(__import__('sqlite3').ProgrammingError):
             c.execute('select 1')
 
-    def test_daily_photo_unreadable_still_publishes_with_caption_and_teacher(self):
+    def test_daily_photo_collected_until_evening_report(self):
         with server.conn() as c:
             c.execute('insert into daily_photos(user_id,day,photo,created) values(?,?,?,?)',(42,server.today(),'photo-test',1))
-        with patch.object(server,'photo_comment',return_value=''),patch.object(server,'send_attachment',return_value={'ok':True}) as delivery:
+        with patch.object(server,'send_attachment',return_value={'ok':True}) as delivery:
             server.publish_daily_photo(42,server.today())
-        recipients={call.args[0] for call in delivery.call_args_list}
-        self.assertTrue({11,42,'-10042'}.issubset(recipients))
-        caption=delivery.call_args.args[2]
-        self.assertIn('Матвей',caption);self.assertIn('Рассмотрите снимок',caption)
-        self.assertNotIn('вслепую',caption)
+        delivery.assert_not_called()
         with server.conn() as c:row=c.execute('select status from daily_photos').fetchone()
-        self.assertEqual(row['status'],'done')
+        self.assertEqual(row['status'],'collected')
 
     def test_admin_menu_has_persistent_write_to_all_button(self):
         with patch.object(server,'api',return_value={'ok':True}) as api,patch.object(server,'send',return_value={'ok':True}):
@@ -84,24 +80,25 @@ class BotTests(unittest.TestCase):
         scope['retry_notifications']()
         self.assertEqual(len(attempts),before)
 
-    def test_checkin_photos_only_reach_their_own_messenger(self):
+    def test_checkin_photos_reach_both_messengers(self):
         server.roster(-17,'MAX student')
         with server.conn() as c:
-            c.execute("insert into evening_checkins(user_id,day,mood,photo,step) values (?,?,?,?,?)",
-                      (42,server.today(),'Хороший','telegram-photo','done'))
-            c.execute("insert into evening_checkins(user_id,day,mood,photo,step) values (?,?,?,?,?)",
-                      (-17,server.today(),'Хороший','max:image:max-token','done'))
+            c.execute("insert into evening_checkins(user_id,day,mood,photo,step) values (?,?,?,?,?)",(42,server.today(),'Хороший','telegram-photo','done'))
+            c.execute("insert into evening_checkins(user_id,day,mood,photo,step) values (?,?,?,?,?)",(-17,server.today(),'Хороший','max:image:max-token','done'))
+            c.execute("insert into daily_photos(user_id,day,photo,created) values(?,?,?,?)",(42,server.today(),'second-photo',1))
         scope=vars(server).copy();scope['GROUP']='';scope['AI_KEY']='';scope['MAX_TOKEN']='test'
         scope['send']=lambda *args,**kwargs:{'ok':True}
-        telegram=[];max_calls=[]
-        scope['send_attachment']=lambda chat,msg,caption:telegram.append((chat,msg)) or {'ok':True}
-        with patch.object(server.max_transport,'send_image',side_effect=lambda *args:max_calls.append(args) or {'ok':True}):
+        import shared_media
+        with patch.object(shared_media,'send_photo',return_value={'ok':True}) as delivery:
             server.notification_delivery.install(scope)
             scope['digest']('pm')
-        self.assertTrue(telegram)
-        self.assertTrue(all(not call[1]['photo'][0]['file_id'].startswith('max:') for call in telegram))
-        self.assertEqual(len(max_calls),1)
-        self.assertEqual(max_calls[0][1],'max-token')
+            scope['retry_notifications']()
+        pairs={(call.args[1],call.args[2]) for call in delivery.call_args_list}
+        self.assertEqual(pairs,{(uid,photo) for uid in (11,42,-17) for photo in ('telegram-photo','max:image:max-token','second-photo')})
+        self.assertEqual(delivery.call_count,9)
+        first=[call.args[3] for call in delivery.call_args_list if '20:30 /' in call.args[3]]
+        self.assertEqual(len(first),3)
+        self.assertEqual(len(set(first)),1)
 
     def test_init_data_signature_and_expiry(self):
         import time
