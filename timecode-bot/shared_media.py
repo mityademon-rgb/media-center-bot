@@ -45,7 +45,8 @@ class SafeRedirect(urllib.request.HTTPRedirectHandler):
 def request(url, data=None, headers=None, telegram=False):
     trusted_url(url,telegram)
     ca=os.getenv('MAX_CA_FILE') if not telegram else None
-    context=ssl.create_default_context(cafile=ca) if ca else ssl.create_default_context()
+    context=ssl.create_default_context()
+    if ca:context.load_verify_locations(cafile=ca)
     opener=urllib.request.build_opener(SafeRedirect(),urllib.request.HTTPSHandler(context=context))
     req=urllib.request.Request(url,data=data,headers=headers or {})
     with opener.open(req,timeout=25) as r:
