@@ -100,6 +100,34 @@ class BotTests(unittest.TestCase):
         self.assertEqual(len(first),3)
         self.assertEqual(len(set(first)),1)
 
+    def test_morning_report_includes_both_platforms_but_not_daily_photos(self):
+        server.roster(-17,'MAX student')
+        with server.conn() as c:
+            for uid,photo in ((42,'tg-morning'),(-17,'max:image:morning')):
+                c.execute("insert into morning_checkins(user_id,day,mood,photo,step) values (?,?,?,?,?)",(uid,server.today(),'Хороший',photo,'done'))
+            c.execute('insert into daily_photos(user_id,day,photo,created) values(?,?,?,?)',(42,server.today(),'daily-photo',1))
+        scope=vars(server).copy();scope['GROUP']='';scope['AI_KEY']=''
+        import shared_media
+        with patch.object(shared_media,'send_photo',return_value={'ok':True}) as delivery:
+            server.notification_delivery.install(scope)
+            scope['digest']('am')
+        self.assertEqual({(x.args[1],x.args[2]) for x in delivery.call_args_list},{(u,p) for u in (11,42,-17) for p in ('tg-morning','max:image:morning')})
+        captions=[x.args[3] for x in delivery.call_args_list if '10:00 /' in x.args[3]]
+        self.assertEqual(len(captions),3);self.assertEqual(len(set(captions)),1)
+
+    def test_photo_report_retries_only_failed_recipient(self):
+        scope=vars(server).copy();scope['GROUP']='';scope['AI_KEY']=''
+        import shared_media
+        rows=[{'user_id':42,'name':'Матвей','photo':'max:image:source'}]
+        with patch.object(shared_media,'send_photo',side_effect=lambda s,chat,*rest:{'ok':chat==11}) as first:
+            server.notification_delivery.install(scope)
+            scope['broadcast_checkin_photos'](rows,'am','10:00 / ИСТОРИИ ЭТОГО УТРА')
+        self.assertEqual(first.call_count,2)
+        with patch.object(shared_media,'send_photo',return_value={'ok':True}) as retry:
+            scope['retry_notifications']()
+            scope['retry_notifications']()
+        self.assertEqual(retry.call_count,1);self.assertEqual(retry.call_args.args[1],42)
+
     def test_init_data_signature_and_expiry(self):
         import time
         pairs = {'auth_date': str(int(time.time())), 'user': json.dumps({'id': 42})}
