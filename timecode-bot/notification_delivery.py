@@ -5,11 +5,22 @@ import html
 import json
 import re
 import editorial_voice
+import shared_media
+import threading
+import time
+
+_DELIVERY_LOCK=threading.RLock()
 
 
 def install(s):
     original_evening=s['evening']
     original_instant_photo=s['instant_photo']
+    original_bot_message=s['bot_message']
+
+    def bot_message(msg):
+        if msg.get('photo') and msg.get('max_photo'):
+            shared_media.remember(s,msg['photo'][-1]['file_id'],str(msg['max_photo'].get('url') or ''))
+        return original_bot_message(msg)
     def audience():
         with s['conn']() as c:
             return [r['id'] for r in c.execute('select id from users where enabled=1')]
@@ -43,17 +54,16 @@ def install(s):
         retry_photos()
 
     def retry_photos():
+        with _DELIVERY_LOCK:_retry_photos()
+
+    def _retry_photos():
         with s['conn']() as c:
             rows=c.execute("select day,period,chat,user_id,photo,caption from notification_photo_outbox where day>=? and delivered=0 order by day,period,chat,case when caption like '%20:30 / КАК ПРОШЁЛ ДЕНЬ%' or caption like '%10:00 / ИСТОРИИ ЭТОГО УТРА%' then 0 else 1 end,user_id limit 40",
                            ((s['now']().date()-dt.timedelta(days=1)).isoformat(),)).fetchall()
         for row in rows:
             try:
                 chat=json.loads(row['chat'])
-                if isinstance(chat,int) and chat<0:
-                    token=row['photo'][len('max:image:'):]
-                    result=s['max_transport'].send_image(-chat,token,s['esc'](row['caption']),s['MAX_TOKEN'])
-                else:
-                    result=s['send_attachment'](chat,{'photo':[{'file_id':row['photo']}]},row['caption'])
+                result=shared_media.send_photo(s,chat,row['photo'],row['caption'])
                 if result and result.get('ok'):
                     with s['conn']() as c:
                         c.execute('update notification_photo_outbox set delivered=1 where day=? and period=? and chat=? and user_id=?',
@@ -79,12 +89,10 @@ def install(s):
                 for row in rows:
                     photo=row['photo']
                     if not photo:continue
-                    from_max=photo.startswith('max:image:')
-                    to_max=isinstance(chat,int) and chat<0
-                    if from_max!=to_max or photo=='max:image:received':continue
+                    if photo=='max:image:received':continue
                     caption=(first+'\n\nКадр: '+row['name'][:45] if story and not attached else label+row['name'][:75])
                     c.execute('insert or ignore into notification_photo_outbox(day,period,chat,user_id,photo,caption) values(?,?,?,?,?,?)',
-                              (s['today'](),period,json.dumps(chat),row['user_id'],photo,caption))
+                              (s['today'](),row.get('asset_period',period) if isinstance(row,dict) else period,json.dumps(chat),row['user_id'],photo,caption))
                     attached=True
                 if not attached:text_only.append(chat)
                 else:media_chats.append(chat)
@@ -202,7 +210,20 @@ def install(s):
                 rows=c.execute("select u.id user_id,u.name,e.mood,e.highlight,e.satisfied,e.photo from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.step='done' and e.mood!='' order by u.name",(s['today'](),)).fetchall()
         body=editorial_voice.story(s,rows,morning)
         label=('☀️ <b>10:00 / ИСТОРИИ ЭТОГО УТРА</b>\n\n' if morning else '🌙 <b>20:30 / КАК ПРОШЁЛ ДЕНЬ</b>\n\n')
-        broadcast_checkin_photos(rows,'am' if morning else 'pm',label+s['esc'](body))
+        pictures=[dict(r) for r in rows]
+        if not morning:
+            with s['conn']() as c:
+                daily=c.execute('select p.user_id,p.photo,p.photo_url,u.name from daily_photos p join users u on u.id=p.user_id where p.day=? order by u.name',(s['today'](),)).fetchall()
+            seen={(r['user_id'],r['photo']) for r in pictures if r['photo']}
+            for r in daily:
+                shared_media.remember(s,r['photo'],r['photo_url'])
+                if (r['user_id'],r['photo']) not in seen:
+                    pictures.append(dict(r,asset_period='pm-daily'))
+                    seen.add((r['user_id'],r['photo']))
+            if daily:
+                names=', '.join(dict.fromkeys(r['name'] for r in daily))
+                body+=' Кадры своего дня прислали: '+names+'. Прикрепляю фотографии к нашему общему выпуску.'
+        broadcast_checkin_photos(pictures,'am' if morning else 'pm',label+s['esc'](body))
 
     def tip():
         item = s['daily_content']('tip', True)
@@ -217,7 +238,30 @@ def install(s):
                   [[{'text':'Ответить боту ↗','url':'https://t.me/'+s['BOTNAME']+'?start=mission'}]])
 
     def instant_photo():
-        original_instant_photo()
+        message=('📷 <b>16:00 / КАДР ДНЯ</b>\n\nДрузья, что сейчас перед вами? Сними один кадр и пришли сюда. '
+                 'В 20:30 прикреплю ваши фотографии с именами авторов к общему вечернему выпуску: его увидят участники и в Telegram, и в MAX. '
+                 'Если в кадре люди, сначала спроси их согласия. Участвовать можно по желанию.')
+        with s['conn']() as c:
+            users=c.execute("select id from users where role!='admin' and enabled=1").fetchall()
+            done={r['user_id'] for r in c.execute('select user_id from daily_photos where day=?',(s['today'](),))}
+        for u in users:
+            if u['id'] in done:continue
+            with s['conn']() as c:c.execute("update users set stage='instant' where id=? and stage=''",(u['id'],))
+            s['send'](u['id'],message)
+
+    def publish_daily_photo(uid,day):
+        # Photos are collected for the common evening edition, never broadcast separately.
+        with s['conn']() as c:
+            c.execute("update daily_photos set status='collected' where user_id=? and day=? and status in ('pending','publishing')",(uid,day))
+
+    def accept_daily_photo(uid,msg):
+        photo=msg['photo'][-1]['file_id']
+        url=str((msg.get('max_photo') or {}).get('url') or '')
+        shared_media.remember(s,photo,url)
+        with s['conn']() as c:
+            inserted=c.execute("insert or ignore into daily_photos(user_id,day,photo,photo_url,created,status) values(?,?,?,?,?,'collected')",(uid,s['today'](),photo,url,int(time.time()))).rowcount
+            if inserted:c.execute("update users set stage='' where id=? and stage='instant'",(uid,))
+        s['send'](uid,'Получил твой кадр. Прикреплю его с твоим именем к общему вечернему выпуску в 20:30 — и в Telegram, и в MAX.' if inserted else 'Твой кадр уже сохранён для вечернего выпуска. Второй прибереги на завтра.')
 
     def photos_digest():
         with s['conn']() as c:
@@ -280,4 +324,4 @@ def install(s):
                 message='🎬 <b>СЕГОДНЯ ЗАНЯТИЕ / '+label+'</b>\n'+s['esc'](event['start'])+' · '+s['esc'](event['title'])+'\n'+s['esc'](event['place'])+'\n\nДмитрий Витальевич ждёт. Камеры зарядить; себя — по возможности тоже.'
                 broadcast(message)
 
-    s.update({'morning':morning,'evening':evening,'reminder':reminder,'digest':digest,'evening_digest':lambda:digest('pm'),'tip':tip,'mission':mission,'instant_photo':instant_photo,'photos_digest':photos_digest,'run_slot':run_slot,'weekly':weekly,'class_reminders':class_reminders,'publish_to_all':publish_to_all,'make_daily':make_daily,'retry_notifications':retry_notifications,'broadcast_checkin_photos':broadcast_checkin_photos})
+    s.update({'bot_message':bot_message,'accept_daily_photo':accept_daily_photo,'publish_daily_photo':publish_daily_photo,'morning':morning,'evening':evening,'reminder':reminder,'digest':digest,'evening_digest':lambda:digest('pm'),'tip':tip,'mission':mission,'instant_photo':instant_photo,'photos_digest':photos_digest,'run_slot':run_slot,'weekly':weekly,'class_reminders':class_reminders,'publish_to_all':publish_to_all,'make_daily':make_daily,'retry_notifications':retry_notifications,'broadcast_checkin_photos':broadcast_checkin_photos})
