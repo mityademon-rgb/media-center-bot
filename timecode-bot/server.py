@@ -1289,6 +1289,8 @@ import chat_games
 chat_games.install(globals())
 import chat_schedule
 chat_schedule.install(globals())
+import weekend_quest
+weekend_quest.install(globals())
 
 if __name__=='__main__':
     if not SECRET or len(SECRET)<32:raise SystemExit('Set SECRET to at least 32 random characters')
