@@ -54,6 +54,8 @@ def story(s, rows, morning):
     with s['conn']() as c:
         cached=c.execute('select body from daily_content where day=? and kind=?',(s['today'](),kind)).fetchone()
     if cached:return cached['body']
+    weekday_name=('понедельник','вторник','среда','четверг','пятница','суббота','воскресенье')[s['now']().weekday()]
+    calendar={'date':s['today'](),'weekday_name':weekday_name}
     facts=[]
     games=[]
     if not morning:
@@ -66,6 +68,7 @@ def story(s, rows, morning):
         facts.append(item)
     prompt=(
         'Ты TIMECODE, бот медиацентра. Разговариваешь с участниками как живой ведущий: на равных, тепло, с лёгкой иронией и без сюсюканья. '
+        'Сегодня '+s['today']()+', '+weekday_name+'. Это точный календарь по Москве. Не называй сегодня другим днём недели; ответы о вчерашних событиях не меняют текущую дату. '
         'Напиши цельный рассказ по ответам переклички от своего имени. Не протокол, не рубленые реплики, не список: 5–7 нормальных связанных предложений в 1–2 абзацах, 450–850 знаков. '
         'Начни с обращения к друзьям и общей мысли, которая действительно следует из ответов. Свяжи 2–4 конкретных ответа с именами, затем заверши своей репликой к ребятам. '
         'Цитируй только если это помогает истории; не повторяй перед каждым именем «пишет», «отмечает», «вспоминает». Не подсчитывай настроение и участников. '
@@ -77,11 +80,11 @@ def story(s, rows, morning):
         +('Это утро. Последняя фраза: вернусь с лайфхаком в 15:00.' if morning else 'Это вечер. Заверши пожеланием хорошего вечера, а в пятницу — хороших выходных.')+
         ' Без заголовка, HTML, Markdown и эмодзи. Верни JSON {"text":"..."}.'
     )
-    result=s['ai_json'](prompt,json.dumps({'date':s['today'](),'weekday':s['now']().weekday(),'answers':facts,'game_participants':games},ensure_ascii=False),750) if (facts or games) and s['AI_KEY'] else None
+    result=s['ai_json'](prompt,json.dumps({'date':s['today'](),'weekday_name':weekday_name,'answers':facts,'game_participants':games},ensure_ascii=False),750) if (facts or games) and s['AI_KEY'] else None
     candidate=str((result or {}).get('text','')).strip()
     if candidate:
-        checked=s['ai_json']('Проверь рассказ по реальным ответам. Сохрани голос живого ведущего и связные полные предложения. Убери только придуманные факты о детях, событиях и фото; не превращай текст в список или обрывки. Не добавляй новых фактов. 450–850 знаков, 5–7 предложений. Верни JSON {"text":"..."}.',
-                             json.dumps({'answers':facts,'game_participants':games,'draft':candidate},ensure_ascii=False),750)
+        checked=s['ai_json']('Проверь рассказ по реальным ответам и calendar. Текущий день недели бери только из calendar, исправь любой неверный день недели применительно к сегодня. Сохрани голос живого ведущего и связные полные предложения. Убери только придуманные факты о детях, событиях и фото; не превращай текст в список или обрывки. Не добавляй новых фактов. 450–850 знаков, 5–7 предложений. Верни JSON {"text":"..."}.',
+                             json.dumps({'calendar':calendar,'answers':facts,'game_participants':games,'draft':candidate},ensure_ascii=False),750)
         candidate=str((checked or {}).get('text','')).strip()
     sentences=len(re.findall(r'[.!?](?:\s|$)',candidate))
     bad=re.search(r'<[^>]+>|(?:^|\n)\s*(?:[•*]|\d+[.)])|не (?:смог|удалось).*?(?:обработ|разобра)|На связи \d',candidate,re.I)
