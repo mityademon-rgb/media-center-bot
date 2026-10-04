@@ -67,12 +67,13 @@ def install(s):
                 if cached:return json.loads(cached['body'])
                 started=c.execute('select 1 from chat_game_runs where day=? and topic=? limit 1',(day,topic)).fetchone()
                 previous=[json.loads(r['body'])['questions'] for r in c.execute('select body from chat_game_content where topic=? order by day desc limit 5',(topic,))]
-            result=GAMES[topic];source='backup'
+            template=(s['weekly_game_definition'](day,topic) if s.get('weekly_game_definition') else None) or GAMES[topic]
+            result=template;source='backup'
             # Keep questions already shown to participants unchanged during rollout.
             if not started and s.get('AI_KEY'):
-                principles=[q['why'] for q in GAMES[topic]['questions']]
+                principles=[q['why'] for q in template['questions']]
                 prompt=('Ты Кими, автор ежедневной игры TIMECODE для школьников 12–17 лет. Каждый день САМ придумываешь пять НОВЫХ простых ситуаций по пройденному уроку. '
-                        'Сегодня тема: '+GAMES[topic]['lesson']+'. Принципы урока переданы в JSON. Используй их, но придумывай новые ситуации, не переписывай прошлые вопросы. '
+                        'Сегодня тема: '+template['lesson']+'. Принципы урока переданы в JSON. Используй их, но придумывай новые ситуации, не переписывай прошлые вопросы. '
                         'Игра проходит прямо в чате: один короткий вопрос, три понятных варианта ответа, ровно один однозначно лучший вариант. '
                         'Вопрос до 220 знаков, вариант до 60, объяснение why — 2 полных предложения до 250 знаков. skill — конкретное действие в инфинитиве (например «оставлять место перед взглядом»). '
                         'Пиши по-русски, разговорно, без сложных терминов. Ситуации с телефоном, съёмкой, интервью школьников; никаких дорогих устройств. '
@@ -92,7 +93,7 @@ def install(s):
                         continue
                     checked=s['ai_json']('Проверь игру для школьников по принципам урока. ok=true если все пять вопросов простые, в указанной ситуации есть один лучший ответ, correct указывает на него, объяснение верно. Отклоняй фактические ошибки и реальные двусмысленности. Не отвергай конкретную учебную ситуацию только потому, что в искусстве бывают исключения. При ok=false кратко укажи причину для автора. Верни JSON {"ok":true,"reason":""}.',json.dumps({'principles':principles,'questions':questions},ensure_ascii=False),220)
                     if (checked or {}).get('ok') is True:
-                        result={**GAMES[topic],'questions':questions};source='kimi';break
+                        result={**template,'questions':questions};source='kimi';break
                     request['editor_note']=str((checked or {}).get('reason') or 'Уточни задачу в каждом вопросе, чтобы был ровно один лучший ответ.')[:500]
                     request['draft']=questions
                     print('Chat game revision:',topic,'editorial',flush=True)
