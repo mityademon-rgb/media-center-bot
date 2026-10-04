@@ -61,7 +61,7 @@ def story(s, rows, morning):
     if not morning:
         with s['conn']() as c:
             if c.execute("select 1 from sqlite_master where type='table' and name='chat_game_runs'").fetchone():
-                games=[dict(r) for r in c.execute("select u.name,g.topic,g.step,g.score,g.missed from chat_game_runs g join users u on u.id=g.user_id where g.day=? and g.step>0 order by u.name",(s['today']().replace('-',''),))]
+                games=[{k:r[k] for k in ('name','topic','step','score')} for r in c.execute("select u.name,g.topic,g.step,g.score,g.missed from chat_game_runs g join users u on u.id=g.user_id where g.day=? and g.step>0 order by u.name",(s['today']().replace('-',''),))]
     for r in rows[:12]:
         item={'name':r['name'],'mood':r['mood'],'words':r['important'] if morning else r['highlight']}
         item['sleep' if morning else 'satisfied']=r['sleep'] if morning else r['satisfied']
@@ -69,26 +69,30 @@ def story(s, rows, morning):
     prompt=(
         'Ты TIMECODE, бот медиацентра. Разговариваешь с участниками как живой ведущий: на равных, тепло, с лёгкой иронией и без сюсюканья. '
         'Сегодня '+s['today']()+', '+weekday_name+'. Это точный календарь по Москве. Не называй сегодня другим днём недели; ответы о вчерашних событиях не меняют текущую дату. '
-        'Напиши цельный рассказ по ответам переклички от своего имени. Не протокол, не рубленые реплики, не список: 5–7 нормальных связанных предложений в 1–2 абзацах, 450–850 знаков. '
-        'Начни с обращения к друзьям и общей мысли, которая действительно следует из ответов. Свяжи 2–4 конкретных ответа с именами, затем заверши своей репликой к ребятам. '
+        'Напиши цельный рассказ по ответам переклички от своего имени. Не протокол, не рубленые реплики, не список: Живой короткий рассказ на 500–1400 знаков, 2–3 небольших абзаца. Не подгоняй его под одинаковое число предложений. '
+        'Начни с самой интересной реальной детали дня, чтобы захотелось читать дальше. Разговаривай от первого лица: замечай, сопоставляй, удивляйся, задай один уместный вопрос. Свяжи 2–4 реальных ответа с именами в небольшой рассказ; не проходи по каждому участнику по очереди. Не начинай ежедневно с «прочитал ваши ответы». '
         'Цитируй только если это помогает истории; не повторяй перед каждым именем «пишет», «отмечает», «вспоминает». Не подсчитывай настроение и участников. '
-        'Хвали только конкретный поступок из ответов. Остроумие по обстоятельствам, без обязательной шутки. Не высмеивай детей. '
+        'У тебя свой характер: умный, ироничный, немного ворчливый редактор, который любит свою компанию. Хвали конкретный поступок. Одна точная шутка по реальной детали лучше пяти шуток про микрофон и эфир. Не высмеивай детей, не морализируй, не заканчивай дежурным «спасибо за участие». '
         'Ты прочитал ответы, но не видел событий. Не придумывай обстоятельства, связи между людьми, привычки, причины настроения, диалоги и содержание фотографий. '
         'Не объявляй настроение всей группы одинаковым, если ответы разные. Имена сохраняй как в исходных данных. Не начинай с «В редакции», не используй метафоры про титры и общий эфир. '
         'Если есть game_participants, вплети в вечерний рассказ, кто сегодня со мной играл. Имена назови; спасибо всем за участие, все молодцы за то, что попробовали и разобрали решения. '
-        'Не утверждай, что все ответили верно, если это не так. Мягко предложи потренировать конкретный навык из missed, без публичного разбора ошибок отдельного ребёнка. '
+        'Игровые ответы и ошибки остаются личными. В рассказе допустимы только имена, факт участия и итоговый счёт. Не цитируй выбранные варианты и не рассказывай публично, в чём ошибся участник. '
         +('Это утро. Последняя фраза: вернусь с лайфхаком в 15:00.' if morning else 'Это вечер. Заверши пожеланием хорошего вечера, а в пятницу — хороших выходных.')+
         ' Без заголовка, HTML, Markdown и эмодзи. Верни JSON {"text":"..."}.'
     )
     result=s['ai_json'](prompt,json.dumps({'date':s['today'](),'weekday_name':weekday_name,'answers':facts,'game_participants':games},ensure_ascii=False),750) if (facts or games) and s['AI_KEY'] else None
     candidate=str((result or {}).get('text','')).strip()
     if candidate:
-        checked=s['ai_json']('Проверь рассказ по реальным ответам и calendar. Текущий день недели бери только из calendar, исправь любой неверный день недели применительно к сегодня. Сохрани голос живого ведущего и связные полные предложения. Убери только придуманные факты о детях, событиях и фото; не превращай текст в список или обрывки. Не добавляй новых фактов. 450–850 знаков, 5–7 предложений. Верни JSON {"text":"..."}.',
-                             json.dumps({'calendar':calendar,'answers':facts,'game_participants':games,'draft':candidate},ensure_ascii=False),750)
-        candidate=str((checked or {}).get('text','')).strip()
+        checked=s['ai_json']('Ты фактчекер, не переписывай авторский голос. Проверь calendar и реальные answers: нет ли придуманных событий, неверного сегодняшнего дня недели, приписанных людям мотивов, публичного разбора игровых ответов или ошибок. Стиль и лёгкую иронию не запрещай. Верни JSON {"ok":true,"reason":""}.',
+                             json.dumps({'calendar':calendar,'answers':facts,'game_participants':games,'draft':candidate},ensure_ascii=False),220) or {}
+        if checked.get('ok') is not True:
+            revised=s['ai_json'](prompt+' Исправь только замечания фактчекера, сохрани разговорный авторский голос.',json.dumps({'calendar':calendar,'answers':facts,'game_participants':games,'draft':candidate,'editor_note':checked.get('reason','Проверь факты и календарь')},ensure_ascii=False),1000) or {}
+            candidate=str(revised.get('text','')).strip()
+            checked=s['ai_json']('Проверь только факты и calendar: нет выдуманных событий, неверного сегодняшнего дня и публичных игровых ответов. JSON {"ok":true}.',json.dumps({'calendar':calendar,'answers':facts,'game_participants':games,'draft':candidate},ensure_ascii=False),180) or {}
+            if checked.get('ok') is not True:candidate=''
     sentences=len(re.findall(r'[.!?](?:\s|$)',candidate))
     bad=re.search(r'<[^>]+>|(?:^|\n)\s*(?:[•*]|\d+[.)])|не (?:смог|удалось).*?(?:обработ|разобра)|На связи \d',candidate,re.I)
-    if not (350<=len(candidate)<=850 and sentences>=4 and not bad) or any(g['name'] not in candidate for g in games):candidate=fallback_story(rows,morning,games)
+    if not (200<=len(candidate)<=1600 and sentences>=3 and not bad):candidate=fallback_story(rows,morning,games)
     if morning and '15:00' not in candidate:candidate+=' В 15:00 вернусь с лайфхаком.'
     with s['conn']() as c:
         c.execute('insert or ignore into daily_content(day,kind,title,body) values(?,?,?,?)',(s['today'](),kind,'Истории переклички',candidate))
