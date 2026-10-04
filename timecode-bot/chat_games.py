@@ -80,6 +80,7 @@ def install(s):
                         'У вопроса про кадр должна быть конкретная задача: показать место, эмоцию, оставить пространство перед взглядом или применить названное правило. Не спрашивай абстрактно «как красивее». '
                         'Ошибочные ответы должны быть правдоподобными действиями, без абсурдных шуток. Меняй позицию правильного ответа. '
                         'Верни JSON {"questions":[{"q":"...","options":["...","...","..."],"correct":0,"why":"...","skill":"..."}]} с пятью вопросами. correct — индекс 0, 1 или 2.')
+                if s.get('weekly_game_context'):prompt+=' '+s['weekly_game_context'](day,topic)
                 request={'date':day,'principles':principles,'previous_questions':[q['q'] for batch in previous for q in batch]}
                 for attempt in range(2):
                     generated=s['ai_json'](prompt,json.dumps(request,ensure_ascii=False),2100)
@@ -123,22 +124,21 @@ def install(s):
             ' На ближайшей съёмке проверь эти решения уже с настоящим героем — там начинается самое интересное.')
         s['send'](uid,'<b>'+s['esc'](name)+', твой результат: '+str(score)+'/5.</b>\n\n'+praise+s['esc'](advice),
                   [[{'text':'Другая игра','callback_data':'cg:menu'}]])
-        answers=json.loads(row['answers'])
-        if answers:
-            body=('<b>'+s['esc'](name)+' сыграл в «'+s['esc'](GAMES[topic]['title'])+'»</b>\n\n'+
-                  '\n\n'.join(str(answer.get('number',index+1))+'. '+s['esc'](answer['question'])+'\nОтвет: '+s['esc'](answer['selected']) for index,answer in enumerate(answers))+
-                  '\n\nРезультат: '+str(score)+'/5. '+('Молодец: все пять решений верные.' if score==5 else 'Спасибо, что сыграл и попробовал свои силы. Разбор и подсказки я отправил тебе лично.'))
-            key=hashlib.sha256(('game-answers:'+row['day']+':'+topic+':'+str(uid)).encode()).hexdigest()[:24]
-            with s['conn']() as c:
-                targets=[r['id'] for r in c.execute('select id from users where enabled=1')]
-                if s.get('GROUP'):targets.append(s['GROUP'])
-                for target in set(targets):
-                    c.execute('insert or ignore into notification_outbox(day,message_key,chat,body,keyboard) values(?,?,?,?,?)',
-                              (s['today'](),key,json.dumps(target),body,'null'))
-            s['retry_notifications'](key)
+        body=('<b>'+s['esc'](name)+' сыграл — '+str(score)+'/5.</b> '+
+              ('Молодец: все ответы правильные!' if score==5 else 'Спасибо за игру! Подсказки отправил лично.'))
+        key=hashlib.sha256(('game-answers:'+row['day']+':'+topic+':'+str(uid)).encode()).hexdigest()[:24]
+        with s['conn']() as c:
+            targets=[r['id'] for r in c.execute('select id from users where enabled=1')]
+            if s.get('GROUP'):targets.append(s['GROUP'])
+            for target in set(targets):
+                c.execute('insert or ignore into notification_outbox(day,message_key,chat,body,keyboard) values(?,?,?,?,?)',
+                          (s['today'](),key,json.dumps(target),body,'null'))
+        s['retry_notifications'](key)
+        if s.get('weekly_game_completed'):s['weekly_game_completed'](uid,topic,row)
 
     def menu(uid):
         day=s['today']().replace('-','')
+        if s.get('weekly_game_menu') and s['weekly_game_menu'](uid):return
         s['send'](uid,'Давай проверим, как ты принимаешь решения на съёмке. Пять ситуаций из наших уроков: выбирай ответ кнопкой, а я объясню, что сработает. В конце покажу твой результат. С чего начнём?',
                   [[{'text':GAMES[t]['title'],'callback_data':f'cg:s:{day}:{t}'}] for t in ('f','i')])
 
@@ -154,6 +154,7 @@ def install(s):
             action,day,topic=bits[1:4]
             parsed=dt.datetime.strptime(day,'%Y%m%d').date()
             if parsed>s['now']().date() or (s['now']().date()-parsed).days>7 or topic not in GAMES:raise ValueError()
+            if s.get('weekly_game_allowed') and not s['weekly_game_allowed'](uid,day,topic):return
             game=game_for(day,topic)
             with s['conn']() as c:
                 tables(c)
@@ -189,13 +190,14 @@ def install(s):
         return original_message(msg)
 
     def invite():
+        if s.get('weekly_game_invite') and s['weekly_game_invite']():return
         day=s['today']().replace('-','')
         for theme in GAMES:game_for(day,theme)
         topic='f' if s['now']().date().toordinal()%2==0 else 'i'
         title=GAMES[topic]['title']
         body=('Друзья, у меня для вас короткая игра: «'+title+'» Кими каждый день придумывает пять новых ситуаций по нашим урокам. '
               'Жми кнопку и выбирай ответы прямо в чате — после каждого разберём решение. В конце получишь личный результат и подсказку для съёмки, '
-              'а свои ответы покажешь всем участникам. Вечером расскажу, кто сегодня играл и что получилось.')
+              'остальные увидят только твой результат, без ответов. Вечером расскажу, кто сегодня играл и что получилось.')
         keyboard=[[{'text':'Играть: '+title,'callback_data':f'cg:s:{day}:{topic}'}],
                   [{'text':'Выбрать другую игру','callback_data':'cg:menu'}]]
         key=hashlib.sha256(('chat-game:'+s['today']()).encode()).hexdigest()[:24]
@@ -206,4 +208,4 @@ def install(s):
                           (s['today'](),key,json.dumps(row['id']),body,json.dumps(keyboard,ensure_ascii=False)))
         s['retry_notifications'](key)
 
-    s.update({'callback':callback,'bot_message':message,'chat_game_invite':invite,'chat_game_menu':menu,'chat_game_prepare':lambda:[game_for(s['today']().replace('-',''),t) for t in GAMES]})
+    s.update({'callback':callback,'bot_message':message,'chat_game_invite':invite,'chat_game_menu':menu,'chat_game_for':game_for,'chat_game_prepare':lambda:[game_for(s['today']().replace('-',''),t) for t in GAMES]})
