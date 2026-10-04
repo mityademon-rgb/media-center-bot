@@ -48,7 +48,7 @@ class ChatTests(unittest.TestCase):
         self.assertTrue(any('Саша, твой результат: 5/5' in t for t in texts))
         with self.conn() as c:posts=c.execute('select body from notification_outbox').fetchall()
         self.assertEqual(len(posts),4)
-        self.assertTrue(all('Ответ:' in r['body'] for r in posts))
+        self.assertTrue(all('Ответ:' not in r['body'] and '5/5' in r['body'] for r in posts))
 
     def test_kimi_creates_and_caches_daily_questions(self):
         import copy
@@ -103,7 +103,7 @@ class ChatTests(unittest.TestCase):
     def test_story_is_cached_and_uses_given_facts(self):
         rows=[{'name':'Матвей','mood':'Хороший','highlight':'Снял короткометражку','satisfied':'Да'}]
         body='Друзья, прочитал ваши ответы и улыбнулся. Матвей сегодня снял короткометражку. Это конкретный результат, и за него хочется похвалить. Мне интересно, что оказалось самым сложным на съёмке. Если хочешь рассказать, я на связи в этом чате. Сначала разберём твой опыт, а потом подумаем, что пригодится на следующей съёмке. Спасибо, что поделился историей своего дня. Хорошего вечера!'
-        self.s['AI_KEY']='test';self.s['ai_json']=Mock(return_value={'text':body})
+        self.s['AI_KEY']='test';self.s['ai_json']=Mock(side_effect=[{'text':body},{'ok':True}])
         self.assertEqual(editorial_voice.story(self.s,rows,False),body)
         self.assertEqual(editorial_voice.story(self.s,rows,False),body)
         self.assertEqual(self.s['ai_json'].call_count,2)
