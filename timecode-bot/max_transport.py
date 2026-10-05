@@ -121,7 +121,9 @@ def send_timecode(user_id,text,token,keyboard=None):
             if not contact:raise ValueError('MAX bot identity unavailable')
             for row in converted:
                 for b in row:
-                    if b.get('type')=='open_app':b['contact_id']=contact
+                    if b.get('type')=='open_app':
+                        b['contact_id']=contact
+                        b['web_app']=me.get('username') or str(contact)
         response=send_text(user_id,text,token,keyboard=converted)
         return {'ok':True,'result':response.get('message',response)}
     except Exception as error:
