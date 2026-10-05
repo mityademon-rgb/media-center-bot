@@ -114,7 +114,15 @@ def keyboard_from_telegram(rows):
 def send_timecode(user_id,text,token,keyboard=None):
     """Match the Telegram send() result shape used by the delivery code."""
     try:
-        response=send_text(user_id,text,token,keyboard=keyboard_from_telegram(keyboard))
+        converted=keyboard_from_telegram(keyboard)
+        if any(b.get('type')=='open_app' for row in converted for b in row):
+            me=api('GET','/me',token)
+            contact=me.get('user_id')
+            if not contact:raise ValueError('MAX bot identity unavailable')
+            for row in converted:
+                for b in row:
+                    if b.get('type')=='open_app':b['contact_id']=contact
+        response=send_text(user_id,text,token,keyboard=converted)
         return {'ok':True,'result':response.get('message',response)}
     except Exception as error:
         print('MAX send failed:',type(error).__name__,flush=True)
