@@ -30,7 +30,7 @@ class WeekTests(unittest.TestCase):
         self.s['morning']();self.s['morning']()
         with server.conn() as c:
             posts=c.execute('select body,keyboard from notification_outbox').fetchall()
-            self.assertEqual(len(posts),3);self.assertIn('25 из 25',posts[0]['body']);self.assertIn('все, кто справится',posts[0]['body'])
+            self.assertEqual(len(posts),3);self.assertIn('минимум на три',posts[0]['body']);self.assertIn('все, кто справится',posts[0]['body'])
         self.assertTrue(self.s['weekly_game_menu'](42))
         self.assertEqual(len(self.s['send'].call_args.args[2]),1)
         self.assertFalse(self.s['weekly_game_allowed'](42,'20261005','i'))
@@ -38,7 +38,7 @@ class WeekTests(unittest.TestCase):
     def test_prize_all_qualified_excludes_wrong_score_and_admin(self):
         with server.conn() as c:
             for uid in (11,42,-17):
-                for d,(topic,*_) in week_plan.DAYS.items():c.execute('insert into chat_game_runs values(?,?,?,?,?)',(uid,d,topic,5,4 if uid==-17 and d=='20261009' else 5))
+                for d,(topic,*_) in week_plan.DAYS.items():c.execute('insert into chat_game_runs values(?,?,?,?,?)',(uid,d,topic,5,2 if uid==-17 and d=='20261009' else 3))
         self.at=dt.datetime.fromisoformat('2026-10-10T09:00:00+03:00');self.s['week_plan_tick']();self.s['week_plan_tick']()
         with server.conn() as c:
             r=c.execute('select * from week_rewards').fetchone();self.assertEqual([u['id'] for u in json.loads(r['eligible'])],[42]);self.assertEqual(c.execute('select count(*) from notification_outbox').fetchone()[0],4)
