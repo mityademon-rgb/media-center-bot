@@ -8,16 +8,36 @@ import editorial_voice
 import shared_media
 import threading
 import time
+import urllib.error
 
 _DELIVERY_LOCK=threading.RLock()
 
 
 def install(s):
+    with s['conn']() as c:
+        c.execute('create table if not exists notification_unreachable(chat text primary key,reason text,created integer)')
+    def unreachable(row,result):
+        description=str((result or {}).get('description','')).lower()
+        if (result or {}).get('error_code')==403 and ('blocked by the user' in description or 'user is deactivated' in description):
+            with s['conn']() as c:
+                c.execute('insert or replace into notification_unreachable values(?,?,?)',(row['chat'],description,int(time.time())))
+                for table in ('notification_outbox','notification_photo_outbox'):
+                    c.execute('update '+table+' set delivered=-1 where chat=? and delivered=0',(row['chat'],))
+            return True
+        with s['conn']() as c:
+            blocked=c.execute('select 1 from notification_unreachable where chat=?',(row['chat'],)).fetchone()
+            if blocked:
+                for table in ('notification_outbox','notification_photo_outbox'):
+                    c.execute('update '+table+' set delivered=-1 where chat=? and delivered=0',(row['chat'],))
+        return bool(blocked)
     original_evening=s['evening']
     original_instant_photo=s['instant_photo']
     original_bot_message=s['bot_message']
 
     def bot_message(msg):
+        uid=(msg.get('from') or {}).get('id')
+        if uid and (msg.get('chat') or {}).get('type')=='private':
+            with s['conn']() as c:c.execute('delete from notification_unreachable where chat=?',(json.dumps(uid),))
         if msg.get('photo') and msg.get('max_photo'):
             shared_media.remember(s,msg['photo'][-1]['file_id'],str(msg['max_photo'].get('url') or ''))
         return original_bot_message(msg)
@@ -44,7 +64,9 @@ def install(s):
                            ((s['now']().date()-dt.timedelta(days=1)).isoformat(),)).fetchall()
         for row in rows:
             try:
+                if unreachable(row,None):continue
                 result=s['send'](json.loads(row['chat']),row['body'],json.loads(row['keyboard']))
+                if unreachable(row,result):continue
                 if result and result.get('ok'):
                     with s['conn']() as c:
                         c.execute('update notification_outbox set delivered=1 where day=? and message_key=? and chat=?',
@@ -62,12 +84,18 @@ def install(s):
                            ((s['now']().date()-dt.timedelta(days=1)).isoformat(),)).fetchall()
         for row in rows:
             try:
+                if unreachable(row,None):continue
                 chat=json.loads(row['chat'])
                 result=shared_media.send_photo(s,chat,row['photo'],row['caption'])
+                if unreachable(row,result):continue
                 if result and result.get('ok'):
                     with s['conn']() as c:
                         c.execute('update notification_photo_outbox set delivered=1 where day=? and period=? and chat=? and user_id=?',
                                   (row['day'],row['period'],row['chat'],row['user_id']))
+            except urllib.error.HTTPError as error:
+                try:result=json.loads(error.read())
+                except Exception:result={}
+                if not unreachable(row,result):print('Photo retry: provider error',error.code,flush=True)
             except Exception as error:
                 print('Photo retry:',type(error).__name__,flush=True)
         with s['conn']() as c:
