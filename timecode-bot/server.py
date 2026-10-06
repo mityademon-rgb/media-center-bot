@@ -143,7 +143,7 @@ def api(method, data=None):
     if not TOKEN: return {}
     try:
         timeout=35 if method=='getUpdates' else 18
-        response=subprocess.run(['curl','-4','-fsS','--connect-timeout','8',
+        response=subprocess.run(['curl','-4','-sS','--connect-timeout','8',
                                  '--max-time',str(timeout),'-H','Content-Type: application/json',
                                  '--data-binary','@-',
                                  'https://api.telegram.org/bot'+TOKEN+'/'+method],
