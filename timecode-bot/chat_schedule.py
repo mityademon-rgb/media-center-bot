@@ -57,8 +57,10 @@ def install(s):
             lines.extend(WEEK[r['weekday']]+' '+r['start']+' · '+s['esc'](r['title'])+' · '+s['esc'](r['place']) for r in current)
             if not current:lines.append('Постоянных занятий пока нет.')
         say(uid,'\n'.join(lines)+'\n\nЧто меняем?',[
+            *([[{'text':'Открыть удобный редактор','web_app':{'url':s['BASE']+'/?view=schedule'}}]] if s.get('BASE') else []),
             [{'text':'Изменить занятие в неделе','callback_data':'sch:action:edit'}],
             [{'text':'Добавить в неделю','callback_data':'sch:action:add'}],
+            [{'text':'Удалить занятие из недели','callback_data':'sch:action:delete'}],
             [{'text':'Изменение на одну дату','callback_data':'sch:action:change'}],
             [{'text':'Отмена на одну дату','callback_data':'sch:action:cancel'}]])
 
@@ -73,10 +75,11 @@ def install(s):
         when=d.get('day') or WEEK[d['weekday']]
         label='Kids Lab' if d['lab']=='kids' else 'Media Lab'
         text='<b>Проверь перед сохранением</b>\n'+label+' · '+when
-        if d['action']=='cancel':text+='\nЗанятие отменяется только на эту дату.'
+        if d['action']=='delete':text+=' · '+d['time']+'\n'+s['esc'](d['title'])+'\nУдалить это постоянное занятие из расписания? Отдельные изменения на даты сохранятся.'
+        elif d['action']=='cancel':text+='\nЗанятие отменяется только на эту дату.'
         else:text+=' · '+d['time']+'\n'+s['esc'](d['title'])+'\n'+s['esc'](d['place'])
         d['step']='confirm';save(uid,d)
-        say(uid,text,[[{'text':'Сохранить','callback_data':'sch:commit'}, {'text':'Отмена','callback_data':'sch:back'}]])
+        say(uid,text,[[{'text':'Удалить' if d['action']=='delete' else 'Сохранить','callback_data':'sch:commit'}, {'text':'Отмена','callback_data':'sch:back'}]])
 
     def commit(uid):
         d=read(uid)
@@ -86,7 +89,10 @@ def install(s):
             row=c.execute('select body from admin_schedule_drafts where user_id=?',(uid,)).fetchone()
             if not row or json.loads(row['body']).get('step')!='confirm':return
             c.execute('delete from admin_schedule_drafts where user_id=?',(uid,))
-            if d['action']=='edit':
+            if d['action']=='delete':
+                removed=c.execute('update lessons set enabled=0 where id=? and lab=? and enabled=1',(d['lesson_id'],d['lab'])).rowcount
+                if not removed:raise ValueError('Занятие уже удалено. Открой расписание снова.')
+            elif d['action']=='edit':
                 changed=c.execute('update lessons set weekday=?,start=?,title=?,place=? where id=? and lab=? and enabled=1',
                                   (d['weekday'],d['time'],d['title'],d['place'],d['lesson_id'],d['lab'])).rowcount
                 if not changed:raise ValueError('Занятие уже изменилось. Открой расписание снова.')
@@ -98,6 +104,7 @@ def install(s):
                           (d['day'],d['lab'],d.get('time','00:00'),d.get('title','Занятие отменено'),d.get('place',''),int(d['action']=='cancel')))
             when=d.get('day') or WEEK[d['weekday']]
             detail=when+' · '+('занятие отменено' if d['action']=='cancel' else d['time']+' · '+d['title']+(' · '+d['place'] if d['place'] else ''))
+            if d['action']=='delete':detail+=' · удалено из постоянного расписания'
             key=queue_change(c,d['lab'],detail)
         s['retry_notifications'](key)
         say(uid,'Сохранил. Расписание в приложении обновлено, сообщение об изменении отправлено в очередь рассылки всем подписчикам Telegram и MAX.',
@@ -113,14 +120,14 @@ def install(s):
             if data in ('admin:schedule','sch:back'):return menu(uid)
             if data=='sch:commit':return commit(uid)
             bits=data.split(':');kind=bits[1];value=bits[2]
-            if kind=='action' and value in ('edit','add','change','cancel'):
+            if kind=='action' and value in ('edit','add','change','cancel','delete'):
                 save(uid,{'action':value,'step':'lab'})
                 return say(uid,'Для какой группы?',[[{'text':'Kids Lab','callback_data':'sch:lab:kids'},{'text':'Media Lab','callback_data':'sch:lab:media'}]])
             d=read(uid)
             if not d:return menu(uid)
             if kind=='lab' and d['step']=='lab' and value in ('kids','media'):
                 d['lab']=value
-                if d['action']=='edit':
+                if d['action'] in ('edit','delete'):
                     with s['conn']() as c:rows=c.execute('select * from lessons where lab=? and enabled=1 order by weekday,start',(value,)).fetchall()
                     if not rows:return say(uid,'У этой группы пока нет занятий. Выбери «Добавить в неделю».',[[{'text':'К расписанию','callback_data':'sch:back'}]])
                     d['step']='lesson';save(uid,d)
@@ -132,6 +139,9 @@ def install(s):
             if kind=='lesson' and d['step']=='lesson':
                 with s['conn']() as c:r=c.execute('select * from lessons where id=? and lab=? and enabled=1',(int(value),d['lab'])).fetchone()
                 if not r:raise ValueError('Занятие не найдено. Открой расписание снова.')
+                if d['action']=='delete':
+                    d.update(lesson_id=r['id'],weekday=r['weekday'],time=r['start'],title=r['title'],place=r['place'])
+                    return preview(uid,d)
                 d.update(lesson_id=r['id'],weekday=r['weekday'],step='weekday')
                 save(uid,d)
                 return say(uid,'Выбери день недели. Можно оставить прежний: '+WEEK[r['weekday']]+'.',[[{'text':label,'callback_data':'sch:weekday:'+str(index)}] for index,label in enumerate(WEEK)])
@@ -170,4 +180,4 @@ def install(s):
             save(uid,d);ask(uid,d)
         except ValueError:say(uid,'Не удалось прочитать значение. '+{'date':'Укажи дату: 2026-10-05 или 05.10.2026.','time':'Укажи время: 18:00.','title':'Напиши название до 120 знаков.','place':'Напиши место до 100 знаков.'}[d['step']])
 
-    s.update({'bot_message':message,'callback':callback,'admin_schedule_menu':menu,'schedule_changed':changed})
+    s.update({'bot_message':message,'callback':callback,'admin_schedule_menu':menu,'schedule_changed':changed,'schedule_queue_change':queue_change})

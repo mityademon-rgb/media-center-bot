@@ -151,6 +151,7 @@ def install(s):
 
     def message(msg):
         uid=(msg.get('from') or {}).get('id');text=(msg.get('text') or msg.get('caption') or '').strip()
+        if uid in s['ADMINS']:return old_message(msg)
         if not uid or not s['allowed'](uid) or (msg.get('chat') or {}).get('type')!='private':return old_message(msg)
         if text=='/questday':return quest_menu(uid)
         with s['conn']() as c:

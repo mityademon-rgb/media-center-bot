@@ -42,6 +42,18 @@ class ScheduleTests(unittest.TestCase):
         with server.conn() as c:r=c.execute('select * from lessons where id=?',(lesson_id,)).fetchone()
         self.assertEqual((r['weekday'],r['start'],r['title']),(3,'19:00','Новое'))
 
+    def test_delete_requires_confirmation_and_notifies_once(self):
+        with server.conn() as c:
+            lesson_id=c.execute("insert into lessons(lab,weekday,start,title,place) values('kids',1,'18:00','Удаляемое','Студия')").lastrowid
+        self.click('sch:action:delete');self.click('sch:lab:kids');self.click('sch:lesson:'+str(lesson_id))
+        with server.conn() as c:self.assertEqual(c.execute('select enabled from lessons where id=?',(lesson_id,)).fetchone()[0],1)
+        self.click('sch:commit');self.click('sch:commit')
+        with server.conn() as c:
+            self.assertEqual(c.execute('select enabled from lessons where id=?',(lesson_id,)).fetchone()[0],0)
+            notices=c.execute('select * from notification_outbox').fetchall()
+        self.assertEqual(len(notices),3)
+        self.assertTrue(all('удалено из постоянного расписания' in r['body'] for r in notices))
+
     def test_date_cancellation_and_unauthorized_buttons(self):
         self.click('sch:action:cancel',42);self.s['send'].assert_not_called()
         self.click('sch:action:cancel');self.click('sch:lab:media');self.type('05.10.2026');self.click('sch:commit')
