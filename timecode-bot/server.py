@@ -1308,6 +1308,8 @@ import admin_controls
 admin_controls.install(globals())
 import schedule_editor
 schedule_editor.install(globals())
+import playful_checkins
+playful_checkins.install(globals())
 
 if __name__=='__main__':
     if not SECRET or len(SECRET)<32:raise SystemExit('Set SECRET to at least 32 random characters')
