@@ -24,11 +24,11 @@ def install(s):
         kind='chef-hunt-'+period
         with s['conn']() as c:r=c.execute('select body from daily_content where day=? and kind=?',(day,kind)).fetchone()
         if r:return r['body']
-        result=s['ai_json']('Придумай фотоохоту Шефа: один предмет, один приём, 60 секунд съёмки, понятный вызов подростку. До 220 знаков, 2–3 предложения. Используй банк направлений из памяти, вариации, не повторяй вчерашнее задание. Не обещай призы. JSON {"text":"..."}.',json.dumps({'day':day,'period':period}),250) if s.get('AI_KEY') else None
+        result=s['ai_json']('Придумай фотоохоту Кими: один предмет, один приём, 60 секунд съёмки, понятный вызов подростку. До 220 знаков, 2–3 предложения. Используй банк направлений из памяти, вариации, не повторяй вчерашнее задание. Не обещай призы. JSON {"text":"..."}.',json.dumps({'day':day,'period':period}),250) if s.get('AI_KEY') else None
         text=str((result or {}).get('text','')).strip()
         if not 30<=len(text)<=240:text=original_hunt(day,period)
         with s['conn']() as c:
-            c.execute('insert or ignore into daily_content(day,kind,title,body) values(?,?,?,?)',(day,kind,'Фотоохота Шефа',text))
+            c.execute('insert or ignore into daily_content(day,kind,title,body) values(?,?,?,?)',(day,kind,'Фотоохота Кими',text))
             return c.execute('select body from daily_content where day=? and kind=?',(day,kind)).fetchone()['body']
     def callback(q):
         data=q.get('data','')
@@ -42,7 +42,7 @@ def install(s):
     def launch():
         day=s['today']()
         if day!='2026-10-09' or not s['checkin_open']('pm'):raise RuntimeError('Pilot must launch inside Friday evening window')
-        body='🎬 ВБРОС ОТ ШЕФА\n\nМассовка, проверим ваши амбиции. '+PILOT+'\n\nСъёмка на минуту. Нажми «Принять вызов» и присылай кадр до 20:00. В 20:30 покажу ваши попытки всем в таблоиде. Посмотрим, кому уже тесно в массовке.'
+        body='🎬 ВБРОС ОТ КИМИ\n\nМассовка, проверим ваши амбиции. '+PILOT+'\n\nСъёмка на минуту. Нажми «Принять вызов» и присылай кадр до 20:00. В 20:30 покажу ваши попытки всем в таблоиде. Посмотрим, кому уже тесно в массовке.'
         keys=[[{'text':'🎬 Принять вызов','callback_data':'chef:pm:'+day}]]
         with s['conn']() as c:
             c.execute("insert into daily_content(day,kind,title,body) values(?,'chef-hunt-pm','Реклама за миллион',?) on conflict(day,kind) do update set body=excluded.body",(day,PILOT))

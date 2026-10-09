@@ -124,11 +124,12 @@ def install(s):
             return s['send'](uid,'Этот выпуск уже собран. Кадр можно приберечь для следующей охоты.')
         url=str((msg.get('max_photo') or {}).get('url') or '')
         shared_media.remember(s,photo,url)
+        photo_task=hunt(s['today'](),period)
         table='morning_checkins' if period=='am' else 'evening_checkins'
         with s['conn']() as c:
             tables(c)
             c.execute('insert into '+table+"(user_id,day,mood,photo,step,visible) values(?,?,'Фотоохота',?,'done',1) on conflict(user_id,day) do update set photo=excluded.photo,step='done',visible=1",(uid,s['today'](),photo))
-            c.execute('insert into photo_hunts(user_id,day,period,task) values(?,?,?,?) on conflict(user_id,day,period) do update set task=excluded.task,comment=\'\'',(uid,s['today'](),period,hunt(s['today'](),period)))
+            c.execute('insert into photo_hunts(user_id,day,period,task) values(?,?,?,?) on conflict(user_id,day,period) do update set task=excluded.task,comment=\'\'',(uid,s['today'](),period,photo_task))
             caption=str(msg.get('caption') or '').strip()
             if caption:c.execute('update '+table+' set '+('important' if period=='am' else 'highlight')+'=? where user_id=? and day=?',(caption[:300],uid,s['today']()))
             c.execute("update users set stage='' where id=?",(uid,))
