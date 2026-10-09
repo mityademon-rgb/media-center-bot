@@ -68,6 +68,7 @@ def install(s):
                 result=c.execute('select score from truth_results where day=? and user_id=?',(s['today'](),uid)).fetchone()['score']
                 return s['send'](uid,'Твой результат уже записан: '+str(result)+'/1. Завтра будет новая загадка.')
             name=c.execute('select name from users where id=?',(uid,)).fetchone()['name']
+            name=s.get('display_name',lambda uid,name:name)(uid,name)
             caption=('Попал в точку! 1/1.' if score else 'Ловушка сработала. Сегодня 0/1 — зато теперь знаешь, как это устроено.')+'\n\n'+('Это правда. ' if item['answer'] else 'Это вымысел. ')+item['explanation']+'\n\nИсточник: '+item['source']
             card='truth-card:true' if item['answer'] else 'truth-card:false'
             c.execute('insert or ignore into notification_photo_outbox(day,period,chat,user_id,photo,caption) values(?,?,?,?,?,?)',(s['today'](),'truth',json.dumps(uid),uid,card,caption[:1000]))

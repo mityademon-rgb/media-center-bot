@@ -238,7 +238,7 @@ def install(s):
                 rows=c.execute("select u.id user_id,u.name,e.mood,e.highlight,e.satisfied,e.photo from evening_checkins e join users u on u.id=e.user_id where e.day=? and e.step='done' and e.mood!='' order by u.name",(s['today'](),)).fetchall()
         body=editorial_voice.story(s,rows,morning)
         label=('☀️ <b>10:00 / ИСТОРИИ ЭТОГО УТРА</b>\n\n' if morning else '🌙 <b>20:30 / КАК ПРОШЁЛ ДЕНЬ</b>\n\n')
-        pictures=[dict(r) for r in rows]
+        pictures=[dict(r,name=s.get('display_name',lambda uid,name:name)(r['user_id'],r['name'])) for r in rows]
         if not morning:
             with s['conn']() as c:
                 daily=c.execute('select p.user_id,p.photo,p.photo_url,u.name from daily_photos p join users u on u.id=p.user_id where p.day=? order by u.name',(s['today'](),)).fetchall()
@@ -246,7 +246,7 @@ def install(s):
             for r in daily:
                 shared_media.remember(s,r['photo'],r['photo_url'])
                 if (r['user_id'],r['photo']) not in seen:
-                    pictures.append(dict(r,asset_period='pm-daily'))
+                    pictures.append(dict(r,asset_period='pm-daily',name=s.get('display_name',lambda uid,name:name)(r['user_id'],r['name'])))
                     seen.add((r['user_id'],r['photo']))
             if daily:
                 names=', '.join(dict.fromkeys(r['name'] for r in daily))
