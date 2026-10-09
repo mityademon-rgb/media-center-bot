@@ -68,9 +68,9 @@ def multipart(fields, field, data):
 
 
 def download(s, photo, row):
-    if photo in ('truth-card:true','truth-card:false','truth-card:announcement-20261009'):
+    if photo in ('truth-card:true','truth-card:false','truth-card:announcement-20261009','truth-card:weekend-20261010'):
         from pathlib import Path
-        return (Path(__file__).parent/'static'/ ({'truth-card:true':'truth-true.png','truth-card:false':'truth-false.png','truth-card:announcement-20261009':'announcement-20261009.jpg'}[photo])).read_bytes()
+        return (Path(__file__).parent/'static'/ ({'truth-card:true':'truth-true.png','truth-card:false':'truth-false.png','truth-card:announcement-20261009':'announcement-20261009.jpg','truth-card:weekend-20261010':'weekend-20261010.jpg'}[photo])).read_bytes()
     if photo.startswith('max:image:'):
         url=row['url']
         if not url:
