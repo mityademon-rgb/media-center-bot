@@ -62,6 +62,10 @@ def story(s, rows, morning):
         with s['conn']() as c:
             if c.execute("select 1 from sqlite_master where type='table' and name='chat_game_runs'").fetchone():
                 games=[{k:r[k] for k in ('name','topic','step','score')} for r in c.execute("select u.name,g.topic,g.step,g.score,g.missed from chat_game_runs g join users u on u.id=g.user_id where g.day=? and g.step>0 order by u.name",(s['today']().replace('-',''),))]
+            if c.execute("select 1 from sqlite_master where type='table' and name='truth_results'").fetchone():
+                games.extend(dict(r) for r in c.execute("select u.name,'Правда или вымысел' topic,1 step,g.score from truth_results g join users u on u.id=g.user_id where g.day=?",(s['today'](),)))
+            if c.execute("select 1 from sqlite_master where type='table' and name='daily_photos'").fetchone():
+                facts.extend({'name':r['name'],'photo_received':True,'photo_task':'Селфи в роли ведущего или репортёра','photo_observation':r['comment']} for r in c.execute('select u.name,p.comment from daily_photos p join users u on u.id=p.user_id where p.day=?',(s['today'](),)))
     for r in rows[:12]:
         item={'name':r['name'],'mood':r['mood'],'words':r['important'] if morning else r['highlight']}
         item['sleep' if morning else 'satisfied']=r['sleep'] if morning else r['satisfied']

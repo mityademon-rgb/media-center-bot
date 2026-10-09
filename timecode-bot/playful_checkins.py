@@ -27,6 +27,14 @@ HUNTS={
        'Покажи одну деталь своего вечера: чашку, книгу, наушники. Приблизь камеру, убери лишнее.',
        'Найди два предмета одного цвета. Попробуй уместить их в одном кадре.',
        'Найди предмет с «лицом», которому пора спать. Сними его вечерний портрет.')}
+SELFIES=(
+ 'Ты диктор новостей. В эфире срочная новость: школьная столовая объявила выходной. Сними селфи с лицом человека, который обязан сохранить серьёзность.',
+ 'Ты ведущий тревел-программы. Прилетел в город, где всё сделано из шоколада. Сними селфи: восторг уже есть, профессиональная выдержка ещё борется.',
+ 'Ты журналист в эпицентре событий: кот захватил твоё кресло. Сними лицо корреспондента, который ведёт репортаж с места этого переворота.',
+ 'Ты ведущий прогноза погоды. Обещал солнце, а за окном снег из попкорна. Сними селфи: как будешь держаться в эфире?',
+ 'Ты спортивный комментатор. Последняя секунда матча — и победный гол. Сними лицо в тот самый момент. Кричать на весь дом необязательно.',
+ 'Ты интервьюер. Гость только что заявил, что никогда не видел телефона. Сними свою реакцию: удивление есть, вежливость тоже должна остаться.',
+ 'Ты ведущий новостей. Суфлёр погас, но камера работает. Сними селфи человека, который делает вид, что всё было задумано именно так.')
 
 def hunt(day,period):return HUNTS[period][dt.date.fromisoformat(day).toordinal()%len(HUNTS[period])]
 
@@ -88,10 +96,20 @@ def install(s):
         uid=(msg.get('from') or {}).get('id')
         if (msg.get('chat') or {}).get('type')!='private' or not uid or not s['allowed'](uid) or uid in s['ADMINS']:return old_message(msg)
         with s['conn']() as c:
-            c.execute('delete from notification_unreachable where chat=?',(json.dumps(uid),))
+            if c.execute("select 1 from sqlite_master where type='table' and name='notification_unreachable'").fetchone():
+                c.execute('delete from notification_unreachable where chat=?',(json.dumps(uid),))
             row=c.execute('select stage from users where id=?',(uid,)).fetchone()
         stage=row['stage'] if row else ''
         photo=(msg.get('photo') or [{}])[-1].get('file_id','')
+        if stage=='instant' and photo:
+            s['accept_daily_photo'](uid,msg)
+            url=str((msg.get('max_photo') or {}).get('url') or '')
+            try:comment=s['photo_comment'](photo,url)
+            except Exception:comment=''
+            if comment:
+                with s['conn']() as c:c.execute('update daily_photos set comment=? where user_id=? and day=? and photo=?',(comment[:700],uid,s['today'](),photo))
+                s['send'](uid,s['esc'](comment[:700]))
+            return
         period='am' if stage=='morning:photo' else 'pm' if stage=='evening:photo' else None
         if not period and photo and not stage:
             period='am' if s['checkin_open']('am') else 'pm' if s['checkin_open']('pm') else None
@@ -121,4 +139,12 @@ def install(s):
             with s['conn']() as c:c.execute('update photo_hunts set comment=? where user_id=? and day=? and period=?',(comment[:700],uid,s['today'](),period))
             s['send'](uid,s['esc'](comment[:700]))
 
-    s.update(init=init,bot_message=message,callback=callback,morning=lambda:invitation('am'),evening=lambda:invitation('pm'),offer_checkin_photo=offer,reminder=lambda period:None,instant_photo=lambda:None)
+    def selfie():
+        task=SELFIES[dt.date.fromisoformat(s['today']()).toordinal()%len(SELFIES)]
+        text='🎭 16:00 / ТЫ В КАДРЕ\n\n'+task+'\n\nПришли одно фото сюда. Помни: я покажу тебя всем — прикреплю кадр с твоим именем к вечернему выпуску в Telegram и MAX. Участвовать можно по желанию.'
+        with s['conn']() as c:rows=c.execute("select id from users where enabled=1 and role!='admin'").fetchall()
+        for row in rows:
+            with s['conn']() as c:c.execute("update users set stage='instant' where id=? and stage=''",(row['id'],))
+            s['send'](row['id'],text)
+
+    s.update(init=init,bot_message=message,callback=callback,morning=lambda:invitation('am'),evening=lambda:invitation('pm'),offer_checkin_photo=offer,reminder=lambda period:None,instant_photo=selfie)

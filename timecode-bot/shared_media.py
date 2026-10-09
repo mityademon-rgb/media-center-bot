@@ -60,12 +60,17 @@ def multipart(fields, field, data):
     parts=[]
     for key,value in fields.items():
         parts.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="'+key+'"\r\n\r\n'+str(value)+'\r\n').encode())
-    parts.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="'+field+'"; filename="frame.jpg"\r\nContent-Type: image/jpeg\r\n\r\n').encode()+data+b'\r\n')
+    mime='image/png' if data.startswith(b'\x89PNG') else 'image/jpeg'
+    filename='frame.png' if mime=='image/png' else 'frame.jpg'
+    parts.append(('--'+boundary+'\r\nContent-Disposition: form-data; name="'+field+'"; filename="'+filename+'"\r\nContent-Type: '+mime+'\r\n\r\n').encode()+data+b'\r\n')
     parts.append(('--'+boundary+'--\r\n').encode())
     return b''.join(parts),{'Content-Type':'multipart/form-data; boundary='+boundary}
 
 
 def download(s, photo, row):
+    if photo in ('truth-card:true','truth-card:false'):
+        from pathlib import Path
+        return (Path(__file__).parent/'static'/ ('truth-true.png' if photo.endswith(':true') else 'truth-false.png')).read_bytes()
     if photo.startswith('max:image:'):
         url=row['url']
         if not url:
@@ -89,7 +94,7 @@ def send_photo(s, chat, photo, caption):
     with s['conn']() as c:
         to_max=(isinstance(chat,int) and chat<0 and
                 s['max_transport'].internal_id(c,'max',-chat) is not None)
-    if from_max==to_max:
+    if from_max==to_max and not photo.startswith('truth-card:'):
         if to_max:return s['max_transport'].send_image(-chat,photo[len('max:image:'):],s['esc'](caption),s['MAX_TOKEN'])
         return s['send_attachment'](chat,{'photo':[{'file_id':photo}]},caption)
     with LOCK:
