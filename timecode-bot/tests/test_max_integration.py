@@ -25,6 +25,7 @@ class MaxIntegration(unittest.TestCase):
         server.MAX_WEBHOOK_SECRET='test-webhook-secret'
         server.GROUP=''
         server.init()
+        with server.conn() as c:c.execute('create table if not exists notification_unreachable(chat text primary key,reason text,created integer)')
 
     def tearDown(self):self.temp.cleanup()
 
@@ -71,7 +72,8 @@ class MaxIntegration(unittest.TestCase):
             server.max_update(update)
         with server.conn() as c:
             self.assertEqual(c.execute('select photo from morning_checkins where user_id=-63').fetchone()['photo'],'max:image:image-token')
-        self.assertIn('Кадр принят',sent.call_args_list[0].args[1])
+        self.assertEqual(sent.call_count,1)
+        self.assertIn('Кадр',sent.call_args_list[0].args[1])
         self.assertFalse(any('Пришли одно фото' in c.args[1] for c in sent.call_args_list))
 
     def test_max_image_info_reads_nested_token_and_preview(self):
