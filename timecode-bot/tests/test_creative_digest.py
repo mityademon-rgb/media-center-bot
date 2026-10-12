@@ -97,3 +97,21 @@ class Vision(Editions):
   self.s['VISION_MODEL']='kimi-k2.6';self.s['kimi_request']=Mock(return_value={'choices':[{'message':{'content':'{"visible":false}'}}]})
   with patch.object(m.shared_media,'remember'),patch.object(m.shared_media,'download',return_value=b'\xff\xd8actual-bytes'):
    with self.assertRaises(m.EditorialPending):m.inspect_photo(self.s,'p')
+
+class Reviewer(Editions):
+ def test_truncated_review_is_explicit_retry_reason(self):
+  self.s['ai_json']=Mock(side_effect=[{'text':BODY,'captions':[]},None])
+  with self.assertRaisesRegex(m.EditorialPending,'kimi-review-json-unavailable'):m.render(self.s,self.rows,True)
+  self.assertGreaterEqual(self.s['ai_json'].call_args.args[2],1000)
+  with self.conn() as c:self.assertEqual(c.execute('select count(*) from kimi_editions').fetchone()[0],0)
+
+class Provider(Editions):
+ def test_provider_http_error_is_not_swallowed(self):
+  self.s.update(AI_MODEL='kimi-k2.6',AI_API='https://example.invalid')
+  with patch.object(m.subprocess,'run',return_value=Mock(returncode=0,stdout='{"error":{}}\n429')):
+   with self.assertRaisesRegex(m.EditorialPending,'kimi-http-429'):m.provider_json(self.s,'check','{}',1200)
+ def test_provider_truncation_is_explicit(self):
+  self.s.update(AI_MODEL='kimi-k2.6',AI_API='https://example.invalid')
+  payload={'choices':[{'finish_reason':'length','message':{'content':'{"ok":false,"reason":"'}}]}
+  with patch.object(m.subprocess,'run',return_value=Mock(returncode=0,stdout=json.dumps(payload)+'\n200')):
+   with self.assertRaisesRegex(m.EditorialPending,'kimi-json-truncated'):m.provider_json(self.s,'check','{}',1200)
