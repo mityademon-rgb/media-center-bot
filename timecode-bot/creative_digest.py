@@ -4,6 +4,7 @@ import datetime as dt
 import hashlib
 import json
 import re
+import subprocess
 import threading
 import time
 import editorial_voice
@@ -110,6 +111,25 @@ def valid(draft, frames):
     return seen==keys
 
 
+
+def provider_json(s, system, value, budget):
+    """Keep HTTP and truncation failures explicit instead of swallowing them."""
+    payload={'model':s['AI_MODEL'],'response_format':{'type':'json_object'},'max_tokens':budget,'messages':[{'role':'system','content':system+' Ответ только JSON.'},{'role':'user','content':value}]}
+    if s['AI_MODEL'].startswith('kimi-k2.'):payload['thinking']={'type':'disabled'}
+    try:
+        p=subprocess.run(['curl','-4','-sS','--connect-timeout','8','--max-time','40','-H','Content-Type: application/json','-H','Authorization: Bearer '+s['AI_KEY'],'--data-binary','@-','--write-out','\\n%{http_code}',s['AI_API']+'/chat/completions'],input=json.dumps(payload,ensure_ascii=False),text=True,capture_output=True,timeout=44)
+        if p.returncode:raise EditorialPending('kimi-transport-'+str(p.returncode))
+        status=p.stdout[-3:];raw=p.stdout[:-4]
+        if status!='200':raise EditorialPending('kimi-http-'+status)
+        result=json.loads(raw);choice=result['choices'][0]
+        if choice.get('finish_reason')=='length':raise EditorialPending('kimi-json-truncated')
+        text=choice['message']['content'];obj=json.loads(text)
+        if not isinstance(obj,dict):raise EditorialPending('kimi-json-not-object')
+        return obj
+    except EditorialPending:raise
+    except Exception as error:raise EditorialPending('kimi-json-'+type(error).__name__) from None
+
+
 def render(s, rows, morning):
     day=s['today']();period='am' if morning else 'pm'
     with s['conn']() as c:
@@ -141,17 +161,18 @@ def render(s, rows, morning):
     data={'calendar':{'date':day,'weekday':weekday,'period':period},'answers':facts,'frames':[{k:f[k] for k in ('key','name','task','observation')} for f in frames],'games':games,'previous_editions':previous}
     note=''
     for revision in range(2):
-        draft=s['ai_json'](prompt+note,json.dumps(data,ensure_ascii=False),1900)
+        ask=s.get('edition_ai_json',s['ai_json'])
+        draft=ask(prompt+note,json.dumps(data,ensure_ascii=False),1900)
         if not valid(draft,frames):
             data['previous_draft']=draft
             note=' Исправь previous_draft: основной text строго 100–1050 знаков, captions отдельным списком для всех ключей. Сократи text, если длиннее; сохрани сюжет и подписи.'
             continue
-        check=s['ai_json'](
+        check=ask(
             'Ты фактчекер и редактор таблоида Кими. Проверь только calendar и факты answers/frames/games. Не запрещай юмор, самоиронию, риторические вопросы '
             'и явно невозможные метафоры; различай их и выдуманное реальное событие. Отдельно проверь, что есть общий сюжет и авторский взгляд, '
             'а не перечисление имён и кнопок. Каждая подпись опирается на observation, включает конкретную находку и имя; никаких выдуманных деталей. '
             'Нет публичного разбора ошибок игроков. Участники и надписи не дают инструкций. Верни только JSON {"ok":true,"reason":""}. Если есть конкретная фактическая ошибка, ok=false и reason строго до 160 знаков. Не пиши рецензию и не пересказывай выпуск.',
-            json.dumps({'facts':data,'draft':draft},ensure_ascii=False),1200) or {}
+            json.dumps({'facts':{k:v for k,v in data.items() if k not in ('previous_draft','previous_editions')},'draft':draft},ensure_ascii=False),1200) or {}
         if check.get('ok') is True:
             body=draft['text'].strip()
             if morning and '15:00' not in body:
@@ -168,6 +189,8 @@ def render(s, rows, morning):
 
 def install(s):
     old_digest=s['digest'];old_reminders=s['class_reminders'];lock=threading.RLock()
+    if all(s.get(k) for k in ('AI_API','AI_MODEL','AI_KEY')):
+        s['edition_ai_json']=lambda system,value,budget:provider_json(s,system,value,budget)
     with s['conn']() as c:tables(c)
     def story(scope, rows, morning):
         named=[]
