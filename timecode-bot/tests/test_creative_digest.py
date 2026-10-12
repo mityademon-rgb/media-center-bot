@@ -115,3 +115,16 @@ class Provider(Editions):
   payload={'choices':[{'finish_reason':'length','message':{'content':'{"ok":false,"reason":"'}}]}
   with patch.object(m.subprocess,'run',return_value=Mock(returncode=0,stdout=json.dumps(payload)+'\n200')):
    with self.assertRaisesRegex(m.EditorialPending,'kimi-json-truncated'):m.provider_json(self.s,'check','{}',1200)
+
+class Batches(Editions):
+ def test_successful_photo_queue_larger_than_40_drains_in_one_call(self):
+  import notification_delivery,shared_media
+  with self.conn() as c:
+   c.execute('create table notification_photo_outbox(day text,period text,chat text,user_id integer,photo text,caption text,delivered integer default 0,primary key(day,period,chat,user_id))')
+   c.executemany('insert into notification_photo_outbox(day,period,chat,user_id,photo,caption) values(?,?,?,?,?,?)', [('2026-10-12','pm','42',i,'photo-'+str(i),'Подпись') for i in range(51)])
+  self.s.update(evening=Mock(),instant_photo=Mock(),bot_message=Mock(),send=Mock(return_value={'ok':True}),api=Mock(),GROUP='',BOTNAME='bot',MAX_TOKEN='',make_daily=Mock())
+  notification_delivery.install(self.s)
+  with patch.object(shared_media,'send_photo',return_value={'ok':True}) as photo:
+   self.s['retry_notifications']();self.assertEqual(photo.call_count,51)
+   self.s['retry_notifications']();self.assertEqual(photo.call_count,51)
+  with self.conn() as c:self.assertEqual(c.execute('select count(*) from notification_photo_outbox where delivered=0').fetchone()[0],0)
