@@ -1316,6 +1316,8 @@ import daily_status
 daily_status.install(globals())
 import chef_voice
 chef_voice.install(globals())
+import creative_digest
+creative_digest.install(globals())
 
 if __name__=='__main__':
     if not SECRET or len(SECRET)<32:raise SystemExit('Set SECRET to at least 32 random characters')
