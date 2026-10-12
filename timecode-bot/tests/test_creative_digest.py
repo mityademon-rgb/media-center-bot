@@ -36,7 +36,9 @@ class Editions(unittest.TestCase):
  def test_editor_revision(self):
   self.s['ai_json']=Mock(side_effect=[{'text':BODY,'captions':[]},{'ok':False,'reason':'выдуман отдых'},{'text':BODY,'captions':[]},{'ok':True}]);m.render(self.s,self.rows,True);self.assertIn('выдуман отдых',self.s['ai_json'].call_args_list[2].args[0])
  def test_each_frame_caption_persisted(self):
-  self.rows[0]['photo']='p';k=m.photo_key(42,'p');self.s['ai_json']=Mock(side_effect=[{'text':BODY,'captions':[{'key':k,'text':'Саша. Кружка снята снизу — выглядит начальником кухни. На планёрку к ней не пойду.'}]},{'ok':True}]);self.s['digest']=Mock();m.install(self.s);m.render(self.s,self.rows,True);self.assertIn('Кружка',m.editorial_voice.digest_caption(self.s,self.rows[0],'am'))
+  self.rows[0]['photo']='p';k=m.photo_key(42,'p');self.s['ai_json']=Mock(side_effect=[{'text':BODY,'captions':[{'key':k,'text':'Саша. Кружка снята снизу — выглядит начальником кухни. На планёрку к ней не пойду.'}]},{'ok':True}]);self.s['digest']=Mock()
+  with self.conn() as c:c.execute("insert into photo_hunts values(42,'2026-10-12','am','Сними кружку','Кружка снята снизу, длинная тень и чистый фон.')")
+  m.install(self.s);m.render(self.s,self.rows,True);self.assertIn('Кружка',m.editorial_voice.digest_caption(self.s,self.rows[0],'am'))
  def test_unseen_frame_blocks(self):
   self.rows[0]['photo']='p';self.s['photo_comment']=Mock(return_value='')
   with self.assertRaises(m.EditorialPending):m.render(self.s,self.rows,True)
@@ -80,3 +82,18 @@ class Delivery(Editions):
    self.assertEqual(c.execute('select count(*) from notification_outbox where delivered=1').fetchone()[0],2)
    self.assertEqual(c.execute('select count(*) from notification_photo_outbox where delivered=1').fetchone()[0],2)
    self.assertEqual(c.execute('select status from kimi_edition_jobs').fetchone()[0],'done')
+
+class Vision(Editions):
+ def test_uses_real_bridge_bytes_and_validated_observation(self):
+  with self.conn() as c:
+   c.execute('create table shared_photo_assets(photo text,url text)');c.execute("insert into shared_photo_assets values('p','')")
+  self.s['VISION_MODEL']='kimi-k2.6';self.s['kimi_request']=Mock(return_value={'choices':[{'message':{'content':json.dumps({'visible':True,'observation':'Красная кружка снята снизу на чистом фоне.','comment':'Она явно управляет кухней.'})}}]})
+  with patch.object(m.shared_media,'remember'),patch.object(m.shared_media,'download',return_value=b'\xff\xd8actual-bytes'):
+   self.assertIn('Красная кружка',m.inspect_photo(self.s,'p'))
+  payload=self.s['kimi_request'].call_args.args[1]
+  self.assertTrue(payload['messages'][0]['content'][1]['image_url']['url'].startswith('data:image/jpeg;base64,'))
+ def test_invisible_photo_never_invents_observation(self):
+  with self.conn() as c:c.execute('create table shared_photo_assets(photo text,url text)')
+  self.s['VISION_MODEL']='kimi-k2.6';self.s['kimi_request']=Mock(return_value={'choices':[{'message':{'content':'{"visible":false}'}}]})
+  with patch.object(m.shared_media,'remember'),patch.object(m.shared_media,'download',return_value=b'\xff\xd8actual-bytes'):
+   with self.assertRaises(m.EditorialPending):m.inspect_photo(self.s,'p')
