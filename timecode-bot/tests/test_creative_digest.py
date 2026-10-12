@@ -15,7 +15,7 @@ class Editions(unittest.TestCase):
    finally:c.close()
   self.conn=conn
   with conn() as c:
-   c.executescript('create table daily_photos(user_id integer,day text,photo text,photo_url text,comment text);create table users(id integer,name text);create table photo_hunts(user_id integer,day text,period text,task text,comment text);create table sent(slot text,day text,primary key(slot,day));create table notification_outbox(day text,message_key text,chat text,body text,keyboard text,delivered integer default 0,primary key(day,message_key,chat));');m.tables(c)
+   c.executescript('create table daily_photos(user_id integer,day text,photo text,photo_url text,comment text,status text);create table users(id integer,name text);create table photo_hunts(user_id integer,day text,period text,task text,comment text);create table sent(slot text,day text,primary key(slot,day));create table notification_outbox(day text,message_key text,chat text,body text,keyboard text,delivered integer default 0,primary key(day,message_key,chat));');m.tables(c)
   self.s={'conn':conn,'today':lambda:'2026-10-12','now':lambda:dt.datetime(2026,10,12,10),'AI_KEY':'test','ai_json':Mock(side_effect=[{'text':BODY,'captions':[]},{'ok':True}]),'photo_comment':Mock(return_value='Кружка снята снизу, длинная тень и чистый фон.'),'ADMINS':{11,-12},'esc':html.escape,'retry_notifications':Mock(),'class_reminders':Mock()}
   self.rows=[{'user_id':42,'name':'Саша','mood':'Зомби','important':'','photo':''}];self.old=m.editorial_voice.story;self.cap=getattr(m.editorial_voice,'digest_caption',None)
  def tearDown(self):
@@ -60,3 +60,23 @@ class Editions(unittest.TestCase):
  def test_empty_round_still_authored(self):m.render(self.s,[],True);self.assertEqual(self.s['ai_json'].call_count,2)
  def test_platform_frame_identity(self):self.assertNotEqual(m.photo_key(17,'same'),m.photo_key(-17,'same'))
 if __name__=='__main__':unittest.main()
+
+class Delivery(Editions):
+ def test_story_and_individual_photos_reach_both_platforms_once(self):
+  import notification_delivery,shared_media
+  with self.conn() as c:
+   c.executescript("create table morning_checkins(user_id integer,day text,sleep text,mood text,important text,photo text,step text);create table notification_photo_outbox(day text,period text,chat text,user_id integer,photo text,caption text,delivered integer default 0,primary key(day,period,chat,user_id));alter table users add column enabled integer default 1;")
+   c.executemany('insert into users(id,name) values(?,?)',[(42,'Саша'),(-17,'Матвей')])
+   c.execute("insert into morning_checkins values(42,'2026-10-12','','Зомби','','photo','done')")
+   c.execute("insert into photo_hunts values(42,'2026-10-12','am','Сними кружку','Кружка снята снизу, длинная тень и чистый фон.')")
+  self.s.update(evening=Mock(),instant_photo=Mock(),bot_message=Mock(),send=Mock(return_value={'ok':True}),api=Mock(),GROUP='',BOTNAME='bot',MAX_TOKEN='',make_daily=Mock())
+  k=m.photo_key(42,'photo');self.s['ai_json']=Mock(side_effect=[{'text':BODY,'captions':[{'key':k,'text':'Саша. Кружка снята снизу — начальник всей кухни. На планёрку к ней не пойду.'}]},{'ok':True}])
+  notification_delivery.install(self.s);m.install(self.s)
+  with patch.object(shared_media,'send_photo',return_value={'ok':True}) as photo:
+   self.s['digest']('am');self.s['digest']('am')
+   self.assertEqual(photo.call_count,2)
+   self.assertTrue(all('Кружка' in call.args[3] for call in photo.call_args_list))
+  with self.conn() as c:
+   self.assertEqual(c.execute('select count(*) from notification_outbox where delivered=1').fetchone()[0],2)
+   self.assertEqual(c.execute('select count(*) from notification_photo_outbox where delivered=1').fetchone()[0],2)
+   self.assertEqual(c.execute('select status from kimi_edition_jobs').fetchone()[0],'done')
