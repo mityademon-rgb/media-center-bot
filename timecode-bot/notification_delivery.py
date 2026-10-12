@@ -102,31 +102,20 @@ def install(s):
             c.execute("update daily_photos set status='done' where status='queued' and not exists (select 1 from notification_photo_outbox p where p.day=daily_photos.day and p.period='daily' and p.user_id=daily_photos.user_id and p.delivered=0)")
 
     def broadcast_checkin_photos(rows,period,story=None):
-        label='📸 КАДР УТРА · ' if period=='am' else '📸 КАДР ВЕЧЕРА · '
-        text_only=[]
-        media_chats=[]
-        plain=html.unescape(re.sub(r'</?b>','',story or ''))
-        cut=len(plain)
-        if cut>895:
-            boundaries=[m.end() for m in re.finditer(r'[.!?](?:\s|$)',plain[:895])]
-            cut=boundaries[-1] if boundaries else plain.rfind(' ',0,895)
-        first=plain[:cut].strip();continuation=plain[cut:].strip()
+        # Prepare every caption before queueing any part of the edition.
+        # The authored story is a separate post; every photo retains its own review.
+        prepared=[]
+        for row in rows:
+            if not row['photo'] or row['photo']=='max:image:received':continue
+            caption=editorial_voice.digest_caption(s,row,period)
+            prepared.append((row,caption))
         with s['conn']() as c:
             for chat in destinations():
-                attached=False
-                for row in rows:
-                    photo=row['photo']
-                    if not photo:continue
-                    if photo=='max:image:received':continue
-                    caption=(first+'\n\nКадр: '+row['name'][:45] if story and not attached else label+row['name'][:75])
+                for row,caption in prepared:
                     c.execute('insert or ignore into notification_photo_outbox(day,period,chat,user_id,photo,caption) values(?,?,?,?,?,?)',
-                              (s['today'](),row.get('asset_period',period) if isinstance(row,dict) else period,json.dumps(chat),row['user_id'],photo,caption))
-                    attached=True
-                if not attached:text_only.append(chat)
-                else:media_chats.append(chat)
-        if story and text_only:broadcast(story,chats=text_only)
-        retry_photos()
-        if continuation and media_chats:broadcast(s['esc'](continuation),chats=media_chats)
+                              (s['today'](),row.get('asset_period',period) if isinstance(row,dict) else period,json.dumps(chat),row['user_id'],row['photo'],caption))
+        if story:broadcast(story)
+        else:retry_photos()
 
     def publish_to_all(msg, body):
         """Send a teacher's message or Telegram media to every enrolled user and the adult chat."""
@@ -248,9 +237,6 @@ def install(s):
                 if (r['user_id'],r['photo']) not in seen:
                     pictures.append(dict(r,asset_period='pm-daily',name=s.get('display_name',lambda uid,name:name)(r['user_id'],r['name'])))
                     seen.add((r['user_id'],r['photo']))
-            if daily:
-                names=', '.join(dict.fromkeys(r['name'] for r in daily))
-                body+=' Кадры своего дня прислали: '+names+'. Прикрепляю фотографии к нашему общему выпуску.'
         broadcast_checkin_photos(pictures,'am' if morning else 'pm',label+s['esc'](body))
 
     def tip():
