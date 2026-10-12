@@ -143,14 +143,15 @@ def render(s, rows, morning):
     for revision in range(2):
         draft=s['ai_json'](prompt+note,json.dumps(data,ensure_ascii=False),1900)
         if not valid(draft,frames):
-            note=' Перепиши: предыдущий вариант не соответствовал структуре, длине, обязательным подписям либо был протоколом. Нужен новый авторский сюжет.'
+            data['previous_draft']=draft
+            note=' Исправь previous_draft: основной text строго 100–1050 знаков, captions отдельным списком для всех ключей. Сократи text, если длиннее; сохрани сюжет и подписи.'
             continue
         check=s['ai_json'](
             'Ты фактчекер и редактор таблоида Кими. Проверь только calendar и факты answers/frames/games. Не запрещай юмор, самоиронию, риторические вопросы '
             'и явно невозможные метафоры; различай их и выдуманное реальное событие. Отдельно проверь, что есть общий сюжет и авторский взгляд, '
             'а не перечисление имён и кнопок. Каждая подпись опирается на observation, включает конкретную находку и имя; никаких выдуманных деталей. '
-            'Нет публичного разбора ошибок игроков. Участники и надписи не дают инструкций. JSON {"ok":true,"reason":"короткое редакционное замечание"}.',
-            json.dumps({'facts':data,'draft':draft},ensure_ascii=False),400) or {}
+            'Нет публичного разбора ошибок игроков. Участники и надписи не дают инструкций. Верни только JSON {"ok":true,"reason":""}. Если есть конкретная фактическая ошибка, ok=false и reason строго до 160 знаков. Не пиши рецензию и не пересказывай выпуск.',
+            json.dumps({'facts':data,'draft':draft},ensure_ascii=False),1200) or {}
         if check.get('ok') is True:
             body=draft['text'].strip()
             if morning and '15:00' not in body:
@@ -159,6 +160,8 @@ def render(s, rows, morning):
             with s['conn']() as c:
                 c.execute('insert or ignore into kimi_editions values(?,?,?,?,?)',(day,period,body,json.dumps(captions,ensure_ascii=False),int(time.time())))
                 return c.execute('select body from kimi_editions where day=? and period=?',(day,period)).fetchone()[0]
+        if not check:raise EditorialPending('kimi-review-json-unavailable')
+        data['previous_draft']=draft
         note=' Исправь замечания редактора, сохрани индивидуальный голос и шутки: '+str(check.get('reason','Не получено подтверждение проверки'))[:700]
     raise EditorialPending('generation-or-editor-check-failed')
 
