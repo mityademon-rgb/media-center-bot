@@ -76,7 +76,17 @@ def install(s):
         retry_photos()
 
     def retry_photos():
-        with _DELIVERY_LOCK:_retry_photos()
+        # Drain successful batches, rather than leaving the last frames until
+        # the next five-minute scheduler tick. Stop immediately without progress.
+        with _DELIVERY_LOCK:
+            cutoff=(s['now']().date()-dt.timedelta(days=1)).isoformat()
+            with s['conn']() as c:before=c.execute('select count(*) from notification_photo_outbox where day>=? and delivered=0',(cutoff,)).fetchone()[0]
+            for _ in range(5):
+                if not before:break
+                _retry_photos()
+                with s['conn']() as c:after=c.execute('select count(*) from notification_photo_outbox where day>=? and delivered=0',(cutoff,)).fetchone()[0]
+                if after>=before:break
+                before=after
 
     def _retry_photos():
         with s['conn']() as c:
