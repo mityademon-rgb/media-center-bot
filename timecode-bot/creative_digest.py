@@ -160,12 +160,12 @@ def render(s, rows, morning):
     )
     data={'calendar':{'date':day,'weekday':weekday,'period':period},'answers':facts,'frames':[{k:f[k] for k in ('key','name','task','observation')} for f in frames],'games':games,'previous_editions':previous}
     note=''
-    for revision in range(2):
+    for revision in range(4):
         ask=s.get('edition_ai_json',s['ai_json'])
         draft=ask(prompt+note,json.dumps(data,ensure_ascii=False),1900)
         if not valid(draft,frames):
             data['previous_draft']=draft
-            note=' Исправь previous_draft: основной text строго 100–1050 знаков, captions отдельным списком для всех ключей. Сократи text, если длиннее; сохрани сюжет и подписи.'
+            note=' Исправь previous_draft. Верни строго JSON объект: text длиной 100–1050 знаков и captions списком по одному объекту на КАЖДЫЙ ключ frames, без пропусков и повторов. Тексты подписей 35–420 знаков. Не повторяй ошибочный вариант.'
             continue
         check=ask(
             'Ты фактчекер и редактор таблоида Кими. Проверь только calendar и факты answers/frames/games. Не запрещай юмор, самоиронию, риторические вопросы '
@@ -181,7 +181,10 @@ def render(s, rows, morning):
             with s['conn']() as c:
                 c.execute('insert or ignore into kimi_editions values(?,?,?,?,?)',(day,period,body,json.dumps(captions,ensure_ascii=False),int(time.time())))
                 return c.execute('select body from kimi_editions where day=? and period=?',(day,period)).fetchone()[0]
-        if not check:raise EditorialPending('kimi-review-json-unavailable')
+        if not check:
+            note=' Редактор не вернул валидный JSON. Сохрани корректные факты и сюжет предыдущего черновика; сделай компактный новый вариант text и все captions.'
+            data['previous_draft']=draft
+            continue
         data['previous_draft']=draft
         note=' Исправь замечания редактора, сохрани индивидуальный голос и шутки: '+str(check.get('reason','Не получено подтверждение проверки'))[:700]
     raise EditorialPending('generation-or-editor-check-failed')
@@ -228,7 +231,8 @@ def install(s):
                 notify=False
                 with s['conn']() as c:
                     row=c.execute('select attempts,alerted from kimi_edition_jobs where day=? and period=?',(day,period)).fetchone()
-                    n=row['attempts']+1;wait=(30,90)[n-1] if n<3 else 900
+                    n=row['attempts']+1
+                    wait=(30 if n==1 else 90 if n==2 else min(3600,900*(2**min(2,(n-3)//3)))) if reason!='kimi-http-429' else min(3600,900*(2**min(2,(n-1)//3)))
                     c.execute("update kimi_edition_jobs set attempts=?,next_at=?,status='pending',reason=? where day=? and period=?",(n,int(time.time())+wait,reason[:100],day,period))
                     if n>=3 and not row['alerted']:
                         alert(c,period,reason);c.execute('update kimi_edition_jobs set alerted=1 where day=? and period=?',(day,period));notify=True
