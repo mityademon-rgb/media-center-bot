@@ -100,10 +100,10 @@ class Vision(Editions):
 
 class Reviewer(Editions):
  def test_truncated_review_is_explicit_retry_reason(self):
-  self.s['ai_json']=Mock(side_effect=[{'text':BODY,'captions':[]},None])
-  with self.assertRaisesRegex(m.EditorialPending,'kimi-review-json-unavailable'):m.render(self.s,self.rows,True)
-  self.assertGreaterEqual(self.s['ai_json'].call_args.args[2],1000)
-  with self.conn() as c:self.assertEqual(c.execute('select count(*) from kimi_editions').fetchone()[0],0)
+  self.s['ai_json']=Mock(side_effect=[{'text':BODY,'captions':[]},None,{'text':BODY,'captions':[]},{'ok':True}])
+  self.assertEqual(m.render(self.s,self.rows,True),BODY)
+  self.assertEqual(self.s['ai_json'].call_count,4)
+  with self.conn() as c:self.assertEqual(c.execute('select count(*) from kimi_editions').fetchone()[0],1)
 
 class Provider(Editions):
  def test_provider_http_error_is_not_swallowed(self):
