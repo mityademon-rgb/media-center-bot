@@ -9,3 +9,5 @@ Moonshot через существующий kimi_request: timeout 55s, max_toke
 Deployment только адресным workflow news/boom-kadr-deploy, backup server.py/index.html и затронутых файлов, проверка live anchors/hashes; один restart службы нужен для нового Handler. SQL не меняется. Для отката восстановить только эти файлы и перезапустить службу. Не делать git reset/clean/pull на runtime.
 
 Проверки: python3 -m unittest discover -s tests -p test_neuro_advisor.py; py_compile; node --check static/neuro.js. Live-успех фиксируется отдельно в news PROJECT_CHANGELOG.
+
+После синтетического live-прогона 20.10 усилена внутренняя проверка расчёта времени, количества пар и участия всех учеников; новый ответ должен соответствовать условиям «без техники».
