@@ -31,7 +31,7 @@ def install(s):
             tables(c)
             old=c.execute('select announcement from daily_status_rounds where day=?',(day,)).fetchone()
             if old:return old['announcement']
-            users=c.execute("select id,name from users where enabled=1 and role!='admin'").fetchall()
+            users=c.execute("select id,name from users where enabled=1 and role='member'").fetchall()
             records=[]
             for u in users:
                 uid=u['id'];actions=0;photo=False;correct=False

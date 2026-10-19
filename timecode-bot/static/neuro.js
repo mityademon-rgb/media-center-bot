@@ -78,3 +78,33 @@
   }
   if(state)render();
 })();
+
+/* Teacher mode: lessons first; daily activities are an explicit, reversible choice. */
+(() => {
+  const teacher = () => state?.me?.role === 'teacher';
+  const paused = () => teacher() && !state.me.daily_enabled;
+  const oldProfile = profile, oldDock = renderDock, oldRender = render;
+  profile = function() {
+    if (!teacher()) return oldProfile();
+    const active = !!state.me.daily_enabled;
+    return `<section class="section neuro"><div class="eyebrow">TIMECODE / ПРЕПОДАВАТЕЛЬ</div><h1>Мой режим</h1><article class="card paper"><h2>${active?'Ежедневная жизнь включена':'Только уроки по нейросетям'}</h2><p>${active?'Вы получаете переклички, задания, фотографии и выпуски. Можно читать и играть в приложении.':'Переклички, задания и ежедневные выпуски в личный бот выключены. Уроки по нейросетям и Кими доступны.'}</p><button class="btn violet" onclick="teacherDailyMode(${active?'false':'true'})">${active?'Отключить ежедневную жизнь':'Участвовать в ежедневной жизни'}</button><p>То же самое в чате бота: <code>/daily ${active?'off':'on'}</code>. Режим можно менять в любой момент.</p></article><div class="actions"><button class="btn" onclick="openNeuro()">Уроки и помощь Кими →</button></div></section>`;
+  };
+  renderDock = function() {
+    oldDock();
+    if (paused()) {
+      document.querySelector('#dock').innerHTML = `<button class="${tab==='neuro'?'active':''}" onclick="openNeuro()"><b>✳</b>Нейросети</button><button class="${tab==='profile'?'active':''}" onclick="go('profile')"><b>◎</b>Моё</button>`;
+    }
+  };
+  render = function() {
+    if (paused() && tab !== 'neuro' && tab !== 'profile') tab = 'neuro';
+    return oldRender();
+  };
+  window.teacherDailyMode = async function(enabled) {
+    try {
+      await req('teacher-mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
+      state = await req('state');
+      render();toast(enabled?'Ежедневная жизнь включена':'Ежедневная жизнь выключена');
+    } catch(e) { toast(e.message); }
+  };
+  if (state) render();
+})();

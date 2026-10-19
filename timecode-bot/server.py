@@ -1321,6 +1321,8 @@ creative_digest.install(globals())
 
 import neuro_advisor
 neuro_advisor.install(globals())
+import teacher_mode
+teacher_mode.install(globals())
 
 if __name__=='__main__':
     if not SECRET or len(SECRET)<32:raise SystemExit('Set SECRET to at least 32 random characters')
