@@ -1319,6 +1319,9 @@ chef_voice.install(globals())
 import creative_digest
 creative_digest.install(globals())
 
+import neuro_advisor
+neuro_advisor.install(globals())
+
 if __name__=='__main__':
     if not SECRET or len(SECRET)<32:raise SystemExit('Set SECRET to at least 32 random characters')
     init()

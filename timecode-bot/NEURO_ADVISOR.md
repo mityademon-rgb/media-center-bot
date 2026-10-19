@@ -1,0 +1,11 @@
+# Нейросети / Кими — 20.10.2026
+
+`neuro_advisor.py` оборачивает Handler после остальных расширений; GET /neuro.js и /neuro.css, POST /api/neuro. Вход через существующий Bearer, enabled проверяется отдельно. Stateless API: до 12 реплик / 18000 знаков контекста, вопрос до 4000 знаков. Нет схем, SQL write, outbox или messenger send. Чат живёт в памяти страницы, есть TXT-экспорт, копирование и новый диалог.
+
+Moonshot через существующий kimi_request: timeout 55s, max_tokens 2600, проверка finish_reason/JSON; честная ошибка 503 вместо шаблона. 40 запросов/час/пользователь, минимум 5s между стартами, максимум два параллельных запроса раздела. Лимиты в памяти сбрасываются при рестарте. Общий провайдер остаётся зависимостью других функций бота; автоматических повторов здесь нет.
+
+Шаги содержат title/tool/action/prompt/check, вопросы максимум два. Справочник: 12 терминов, 6 типов задач; официальные ссылки GigaChat, DeepSeek, Gamma, Suno. Курс #/ai и практикум assets/neuro/index.html связаны ссылками. Цена, доступность и права не обещаются. Пользовательский текст выводится экранированным, HTML/Markdown от модели не выполняются.
+
+Deployment только адресным workflow news/boom-kadr-deploy, backup server.py/index.html и затронутых файлов, проверка live anchors/hashes; один restart службы нужен для нового Handler. SQL не меняется. Для отката восстановить только эти файлы и перезапустить службу. Не делать git reset/clean/pull на runtime.
+
+Проверки: python3 -m unittest discover -s tests -p test_neuro_advisor.py; py_compile; node --check static/neuro.js. Live-успех фиксируется отдельно в news PROJECT_CHANGELOG.
