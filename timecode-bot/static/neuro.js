@@ -35,7 +35,7 @@
     button.className = tab === 'neuro' ? 'active' : '';
     button.innerHTML = '<b>✳</b>Нейросети';
     button.onclick = () => openNeuro();
-    dock.append(button); dock.classList.add('neuro-dock');
+    dock.prepend(button); dock.classList.add('neuro-dock');
   };
   render = function() {
     if (tab !== 'neuro' || !state) return previousRender();
