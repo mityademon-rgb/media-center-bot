@@ -25,9 +25,11 @@
     ['06', 'Источники и документы', 'Найти смысл в ваших материалах, сопоставить, составить конспект. Просите опору на конкретные фрагменты.', 'Начать с текста источника']
   ];
   const previousHome = home, previousRender = render, previousDock = renderDock;
-  home = function() { return previousHome() + `<section class="section neuro-entry"><span class="tag">НОВАЯ МАСТЕРСКАЯ / КИМИ</span><h2>Есть задача.<br>Найдём нейросеть.</h2><p>Урок, афиша, сценарий, отчёт. Кими предложит маршрут и напишет запросы для каждого шага.</p><button class="btn" onclick="openNeuro()">Нейросети →</button></section>`; };
+  const teacherAccess = () => !!state?.me && ['teacher', 'admin'].includes(state.me.role);
+  home = function() { return previousHome() + (teacherAccess() ? `<section class="section neuro-entry"><span class="tag">МАСТЕРСКАЯ ПРЕПОДАВАТЕЛЯ / КИМИ</span><h2>Есть задача.<br>Найдём нейросеть.</h2><p>Занятие, афиша, программа, отчёт. Кими предложит маршрут и напишет запросы для каждого шага.</p><button class="btn" onclick="openNeuro()">Нейросети →</button></section>` : ''); };
   renderDock = function() {
     previousDock();
+    if (!teacherAccess()) return;
     const dock = document.querySelector('#dock');
     const button = document.createElement('button');
     button.className = tab === 'neuro' ? 'active' : '';
@@ -37,15 +39,16 @@
   };
   render = function() {
     if (tab !== 'neuro' || !state) return previousRender();
+    if (!teacherAccess()) { tab = 'home'; return previousRender(); }
     if (owner !== state.me.id) { owner = state.me.id; messages = []; draft = ''; error = ''; }
     document.body.classList.remove('arcade-playing');
     renderDock(); document.querySelector('#app').innerHTML = view();
     bind();
   };
-  window.openNeuro = function() { page = 'chat'; go('neuro'); };
+  window.openNeuro = function() { if (!teacherAccess()) return; page = 'chat'; go('neuro'); };
   function view() {
     const head = `<header class="neuro-head"><div class="eyebrow">TIMECODE / ПРАКТИКА С КИМИ</div><h1>Нейросети<br><em>для вашей задачи.</em></h1><p>Расскажите, что нужно сделать. Разберём на шаги, выберем инструменты и составим промпты.</p></header><div class="neuro-tabs" role="group" aria-label="Раздел нейросетей">${[['chat','Помощь Кими'],['tools','Кто что умеет'],['terms','Термины']].map(([id,label])=>`<button class="pill ${page===id?'active':''}" data-page="${id}" aria-pressed="${page===id}">${label}</button>`).join('')}</div>`;
-    const course = `<aside class="neuro-course"><span>ПРОЙТИ ВМЕСТЕ С ПРЕПОДАВАТЕЛЕМ</span><h3>Нейросети для…</h3><p>Четыре встречи: от первого запроса до готового занятия, визуала и отчёта.</p><a href="https://timecode-lab.ru/#/ai" target="_blank" rel="noopener" class="pill">Открыть курс ↗</a><a href="https://timecode-lab.ru/assets/neuro/index.html" target="_blank" rel="noopener" class="pill">Практикум ↗</a></aside>`;
+    const course = `<aside class="neuro-course"><span>КУРС ДЛЯ ПРЕПОДАВАТЕЛЕЙ</span><h3>Нейросети для преподавателя</h3><p>Четыре встречи: от первого запроса до готового занятия, визуала и отчёта.</p><a href="https://timecode-lab.ru/#/ai" target="_blank" rel="noopener" class="pill">Открыть курс ↗</a><a href="https://timecode-lab.ru/assets/neuro/index.html" target="_blank" rel="noopener" class="pill">Практикум ↗</a></aside>`;
     if (page === 'terms') return `<div class="neuro">${head}<div class="neuro-terms">${terms.map(([title,text])=>`<details><summary>${esc(title)}</summary><p>${esc(text)}</p></details>`).join('')}</div>${course}</div>`;
     if (page === 'tools') return `<div class="neuro">${head}<p class="neuro-note">Это разделение по задачам. Единого рейтинга «самая умная» нет; один сервис может совмещать несколько форматов.</p><div class="neuro-categories">${categories.map(([n,title,text,label,url,second])=>`<article><span>${n}</span><h2>${title}</h2><p>${text}</p>${url?`<a href="${url}" target="_blank" rel="noopener">${esc(label.split(' / ')[0])} ↗</a>${second?` · <a href="${second}" target="_blank" rel="noopener">DeepSeek ↗</a>`:''}`:`<button class="pill" data-example="${esc('Помогите выбрать нейросеть: '+title)}">${label} →</button>`}</article>`).join('')}</div><p class="neuro-note">Назначения сверены по официальным страницам 20.10.2026. Доступ, функции и условия использования проверяйте в самом сервисе.</p>${course}</div>`;
     return `<div class="neuro">${head}${!messages.length?`<section class="neuro-start"><div class="neuro-kimi">К</div><div><h2>Что будем делать?</h2><p>Можно одной фразой. Например: «Нужна игра для первого занятия».</p></div></section><div class="neuro-examples">${examples.map((text,i)=>`<button data-example="${esc(text)}"><span>0${i+1}</span>${esc(text)} ↗</button>`).join('')}</div>`:''}<div class="neuro-chat" aria-live="polite">${messages.map((m,i)=>m.role==='user'?`<article class="neuro-user"><b>Вы</b><p>${esc(m.content)}</p></article>`:answer(m.result,i)).join('')}${busy?'<div class="neuro-wait" role="status">Кими собирает маршрут…</div>':''}</div><form id="neuro-form" class="neuro-compose"><label for="neuro-task">${messages.length?'Продолжить разговор':'Ваша задача'}</label><textarea id="neuro-task" rows="4" maxlength="4000" placeholder="Мне нужно…" ${busy?'disabled':''} required>${esc(draft)}</textarea><div class="neuro-controls"><button type="submit" class="btn" ${busy?'disabled':''}>${busy?'Кими отвечает…':'Получить помощь →'}</button>${messages.length?`<button type="button" class="pill" id="neuro-new" ${busy?'disabled':''}>Новая задача</button><button type="button" class="pill" id="neuro-export">Скачать диалог ↓</button>`:''}</div>${error?`<p class="neuro-error" role="alert">${esc(error)}</p>`:''}<small>Диалог сохраняется только до перезагрузки страницы. Для примеров используйте вымышленные имена и обезличенные материалы.</small></form>${course}</div>`;

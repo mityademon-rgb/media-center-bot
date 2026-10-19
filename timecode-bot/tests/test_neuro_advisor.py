@@ -2,6 +2,7 @@ import io
 import json
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -64,8 +65,16 @@ class AdvisorTests(unittest.TestCase):
         n.install({'Handler': Handler})
         h = Handler()
         self.assertEqual(h.do_POST()[1], 401)
-        h.user = {'enabled': 0, 'id': 1}
+        h.user = {'enabled': 0, 'id': 1, 'role': 'teacher'}
         self.assertEqual(h.do_POST()[1], 403)
+        h.user = {'enabled': 1, 'id': 2, 'role': 'member'}
+        self.assertEqual(h.do_POST()[1], 403)
+        self.assertIn('преподавателям', h.do_POST()[0]['error'])
+        for role in ('teacher', 'admin'):
+            h.user = {'enabled': 1, 'id': 3, 'role': role}
+            h.body = lambda limit: {'message': 'Помогите с занятием'}
+            with unittest.mock.patch.object(n, 'advise', return_value={'reply': 'План', 'steps': [], 'questions': []}):
+                self.assertEqual(h.do_POST()[1], 200)
         h.path = '/api/state'
         self.assertEqual(h.do_POST(), 'old post')
         self.assertEqual(h.do_GET(), 'old get')
