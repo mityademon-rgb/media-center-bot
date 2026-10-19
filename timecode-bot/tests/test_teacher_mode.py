@@ -85,6 +85,8 @@ class TeacherModeTests(unittest.TestCase):
         self.assertEqual(self.row(22)['stage'],'')
         self.msg(10)
         self.assertEqual(self.sent[-1][0],'original')
+        self.ns['callback']({'id':'max','from':{'id':10},'data':'onboard:lab:kids'})
+        self.assertEqual(self.sent[-1][0],'callback')
 
     def test_opt_out_suppresses_queued_text_photo_and_scheduled_direct_messages(self):
         self.msg(23)

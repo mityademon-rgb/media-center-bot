@@ -146,12 +146,12 @@ def install(ns):
     def callback(q):
         uid=(q.get('from') or {}).get('id');data=q.get('data','')
         if uid and (data.startswith('onboard:attendance:') or data.startswith('onboard:daily:') or data.startswith('onboard:lab:') or data.startswith('teacher:daily:')):
+            if data.startswith('onboard:lab:') and not choose(uid,data.rsplit(':',1)[-1]):
+                return old_callback(q)
             if q.get('id')!='max':ns['api']('answerCallbackQuery',{'callback_query_id':q.get('id')})
             if data.startswith('onboard:attendance:'):
                 choose(uid,data.rsplit(':',1)[-1])
             elif data.startswith('onboard:daily:'):
-                choose(uid,data.rsplit(':',1)[-1])
-            elif data.startswith('onboard:lab:'):
                 choose(uid,data.rsplit(':',1)[-1])
             elif data.startswith('teacher:daily:') and (r:=teacher(uid)) and r['role']=='teacher':
                 set_mode(uid,data.endswith(':on'));greeting(uid)
