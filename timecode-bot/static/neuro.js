@@ -94,7 +94,16 @@
     if (!teacherAccess()) {
       document.body.classList.remove('arcade-playing');
       renderDock();
-      document.querySelector('#app').innerHTML = '<section class="section neuro"><h1>Нейросети</h1><p>Материалы курса доступны преподавателям TIMECODE. Для входа используется учётная запись преподавателя.</p><button class="btn" onclick="go(\'home\')">На главную</button></section>';
+      document.querySelector('#app').innerHTML = `<section class="section neuro">
+        <div class="eyebrow">TIMECODE / НЕЙРОСЕТИ</div><h1>Вход преподавателя</h1>
+        <p>${isMax ? 'В MAX у тебя отдельная учётная запись. Если ты уже администратор или преподаватель в Telegram, подтверди её и открой этот раздел здесь.' : 'Уроки по нейросетям открыты преподавателям TIMECODE. Этот аккаунт не распознан как преподавательский.'}</p>
+        ${isMax ? `<p>1. Напиши <b>/login</b> боту TIMECODE в Telegram, где у тебя есть доступ.<br>2. Введи сюда шестизначный код из его ответа. Код действует 5 минут.</p>
+        <form id="neuro-max-access" onsubmit="enterTeacherCode(event)">
+          <label class="field">Код Telegram<input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>
+          <button class="btn violet" type="submit">Подтвердить и открыть Нейросети →</button>
+        </form>` : ''}
+        <button class="btn" onclick="go('home')">На главную</button>
+      </section>`;
       return;
     }
     if (owner !== state.me.id) { owner = state.me.id; messages = []; draft = ''; error = ''; }
