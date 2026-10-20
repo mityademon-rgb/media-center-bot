@@ -22,11 +22,96 @@ ENDING = {
  1: 'Главная героиня репортажа — гримёрша. Она знала секрет альтернативной концовки и хотела сохранить плёнку, а не уничтожить её.',
  2: 'Главный герой репортажа — реквизитор. Именно он спрятал камеру по просьбе гримёрши, чтобы плёнку не перезаписали.'
 }
+
+# This is the deterministic case file. Kimi may interpret, but never invent evidence.
+CASE_RAILS = {
+ 0: {
+  'reveal': [
+   'За стеклом часов обнаружилась царапина: стрелки не сломались, кто-то снял крышку. Значит, 17:24 может быть подставной отметкой.',
+   'На футляре серебристая пыль. Такой порошок есть на двери реквизиторского шкафа. Но это ещё не значит, что камеру переносил реквизитор.',
+   'В журнале запись «камера на месте» исправлена поверх другого времени. На полях карандашом стоит «7Б». Кто-то переписывал хронологию.'
+  ],
+  'question': 'Кими: одна улика — ещё не приговор. Как проверим версию?',
+  'moves': ['Сверить время хлопушки','Изучить маршрут','Открыть лист смены'],
+  'outcomes': [
+   'На хлопушке последнего дубля стоит 17:19. Часы остановились позже. Между этими минутами кто-то успел попасть за декорации.',
+   'На плане площадки нашёлся короткий проход от исторической улицы к реквизиторскому шкафу. Именно там могли оставить тяжёлый футляр.',
+   'В листе смены есть пометка «перенос футляра, 17:26», но не указано, кто его нёс. Почерк напоминает запись из журнала.'
+  ],
+  'end': '📁 ДЕЛО №1 НЕ ЗАКРЫТО. Теперь у нас есть маршрут и временной промежуток, а не просто подозрения. Сегодня в 18:30 мск проверим время на твоей собственной фотоулике.'
+ },
+ 2: {
+  'reveal': [
+   'Оператор не соврал про свет, но в списке дублей после 17:20 нет ни одного его крупного плана. Возможно, он наблюдал за проходом.',
+   'Гримёрша действительно работала с актёрами, но за час до пропажи попросила оставить старую плёнку отдельно от новой.',
+   'Реквизитор отмечал предметы, но ключ от шкафа не записал ни на кого. На схеме площадки этот шкаф стоит рядом с тайным проходом.'
+  ],
+  'question': 'Кими: у каждого есть алиби, но у каждого есть пробел. Какой документ запросим?',
+  'moves': ['Съёмочное расписание','Общий план площадки','Книгу выдачи ключей'],
+  'outcomes': [
+   'В расписании перерыв длился всего семь минут. Времени на дальний вынос камеры не было, зато до шкафа рукой подать.',
+   'На общем плане не видно лица человека с футляром, зато видна дверь шкафа и тень от декорации.',
+   'Ключ от шкафа остался на крючке после 17:00. Значит, доступ имел не только реквизитор.'
+  ],
+  'end': '🗃️ ПРОТОКОЛ ДОПОЛНЕН. Теперь подозреваем не профессию, а поступок. Сегодня в 18:30 мск устроим допрос по конкретной детали.'
+ },
+ 3: {
+  'reveal': [
+   'Оператор подтверждает: в архивной записи есть движение возле шкафа, но лицо закрывает декорация. Он готов показать кадр.',
+   'Гримёрша говорит: альтернативная концовка была снята на старую плёнку. Она боялась, что её сотрут при монтаже.',
+   'Реквизитор признаёт: шкаф открывали после репетиции. Но утверждает, что делал это не один.'
+  ],
+  'question': 'Кими: показания записаны. Как не испортить расследование поспешным выводом?',
+  'moves': ['Сохранить протокол','Запросить исходный кадр','Сопоставить времена'],
+  'outcomes': [
+   'Записали показания дословно. Две версии сходятся в одном: кто-то опасался за судьбу плёнки.',
+   'Исходный кадр показывает только силуэт с большим предметом. Лицо не видно, зато направление движения совпадает с планом.',
+   'Отметки 17:19, 17:24 и 17:26 образовали цепочку. Между съёмкой и записью в журнале была короткая пауза.'
+  ],
+  'end': '🎞️ ДОПРОС ОКОНЧЕН. У нас есть причина искать именно плёнку, а не дорогую камеру. Завтра в 09:00 мск заглянем в монтажную.'
+ },
+ 4: {
+  'reveal': [
+   'Слово «СВЕТ» встречается в пометке оператора к последнему дублю. Возможно, надо искать исходную съёмку.',
+   'Слово «ЛИЦО» помечено на гримёрном листе: в альтернативном финале герой выглядит иначе, чем в сценарии.',
+   'Слово «ПРАВДА» подчёркнуто в заметке режиссёра. Похоже, спор был не о технике, а о том, какую концовку показать зрителям.'
+  ],
+  'question': 'Кими: одно слово тянет за собой целую сцену. Что исследуем дальше?',
+  'moves': ['Монтажный лист','Дело с запиской','Второй вариант финала'],
+  'outcomes': [
+   'В монтажном листе обнаружили пустое место для ещё одной катушки. Она должна была лежать рядом с камерой.',
+   'На обороте записки виден след от скрепки. Значит, записка раньше была прикреплена к настоящему документу.',
+   'В списке дублей второй финал не помечен как брак. Плёнку могли убрать, чтобы её не перезаписали.'
+  ],
+  'end': '🧩 КАРТИНА СКЛАДЫВАЕТСЯ. Пока неизвестно, кто спрятал камеру, но мотив становится понятнее. Сегодня в 18:30 мск создадим фотоулику, а завтра назовём подозреваемого.'
+ },
+ 6: {
+  'reveal': [
+   'Ты подозреваешь оператора. Его съёмка может быть и доказательством, и попыткой скрыть собственный след.',
+   'Ты подозреваешь гримёршу. Она действительно защищала плёнку, но это ещё не ответ на вопрос, кто перенёс камеру.',
+   'Ты подозреваешь реквизитора. У него были доступ к шкафу и знания о маршруте. Но нужна причина, а не только возможность.'
+  ],
+  'question': 'Кими: кого обвиняем, я записал. А какой мотив проверим перед финалом?',
+  'moves': ['Спасти старую плёнку','Скрыть ошибку группы','Разыграть режиссёра'],
+  'outcomes': [
+   'Версия о спасении плёнки объясняет, почему камера исчезла вместе с катушкой. Но действовать тайно было опасно для съёмок.',
+   'Версия об ошибке объясняет молчание, но не объясняет записку про «правильный финал». Придётся искать ещё одно подтверждение.',
+   'Версия о розыгрыше звучит эффектно для кино, но улики слишком серьёзные. Шутка без согласия команды могла сорвать премьеру.'
+  ],
+  'end': '🏁 ПОСЛЕДНЯЯ ВЕРСИЯ В ПРОТОКОЛЕ. Голоса сохранены. Сегодня в 19:00 мск Кими раскроет события и покажет, где мы ошибались.'
+ }
+}
+PHOTO_CLOSURES = {
+ 1: '🕰 Кими открыл старый план: часы можно остановить рукой, но время на хлопушке не подделаешь так просто. В деле две отметки — 17:24 и 17:26. Кто объяснит разницу? Завтра в 09:00 мск опросим троих подозреваемых.',
+ 5: '🎞 В монтажной обнаружили свободную коробку под плёнку. Теперь ясно: исчезла не только камера, но и возможный другой финал картины. Завтра в 09:00 мск выбираем главную версию, в 19:00 узнаем правду.'
+}
+
 TRUTH = 'Истина: реквизитор спрятал камеру по просьбе гримёрши, а оператор случайно снял перенос. Плёнку спасли, но скрытность едва не сорвала съёмку. Лучший финал — когда съёмочная группа знает правду.'
 def tables(c):
     c.executescript("""create table if not exists kinokod_votes (user_id integer not null, slot integer not null, choice integer, photo text, caption text, updated integer not null, primary key(user_id,slot));
 create table if not exists kinokod_posts (slot integer primary key, sent_at integer not null);
 create table if not exists kinokod_players (user_id integer primary key, joined_at integer not null);
+create table if not exists kinokod_steps (user_id integer not null, slot integer not null, action integer not null, updated integer not null, primary key(user_id,slot));
 create table if not exists kinokod_visuals (user_id integer not null, slot integer not null, delivered integer not null default 0, attempts integer not null default 0, next_at integer not null default 0, primary key(user_id,slot));""")
 
 def install(s):
@@ -48,7 +133,7 @@ def install(s):
         opts=RELEASES[slot][3]
         if opts:
             return [[{'text':o,'callback_data':f'kc:{slot}:{i}'}] for i,o in enumerate(opts)]
-        return [[{'text':'📷 Отправлю фото','callback_data':f'kc:{slot}:photo'}]]
+        return [[{'text':'📷 Отправлю фото','callback_data':f'kc:{slot}:photo'}], [{'text':'📄 Продолжить без фотографии','callback_data':f'kc:{slot}:skip'}]]
     def record(uid,slot,choice=None,photo=None,caption=''):
         with s['conn']() as c:
             tables(c)
@@ -137,21 +222,76 @@ def install(s):
         except Exception as error:
             print('KinoKod photo review:',type(error).__name__,flush=True)
             s['send'](uid,'📷 Улику сохранил. Рассмотреть детали кадра пока не получилось, но фотография останется в деле.')
+
+    def continuation_buttons(slot):
+        return [[{'text':label,'callback_data':f'kc:{slot}:next:{i}'}] for i,label in enumerate(CASE_RAILS[slot]['moves'])]
+    def reveal_choice(uid,slot,choice):
+        case=CASE_RAILS[slot]
+        body='🕵️ <b>Кими открывает следующую улику:</b> '+s['esc'](case['reveal'][choice])+'\n\n'+s['esc'](case['question'])
+        s['send'](uid,body,continuation_buttons(slot))
+    def resolve_step(uid,slot,action):
+        case=CASE_RAILS[slot]
+        # A verified narrative result, not a free-form AI invention.
+        text='🔎 <b>Проверка завершена:</b> '+s['esc'](case['outcomes'][action])+'\n\n'+s['esc'](case['end'])
+        s['send'](uid,text)
+    def existing_continuations():
+        # Older players answered while the game only had one-question episodes.
+        with s['conn']() as db:
+            tables(db)
+            rows=db.execute('select v.user_id,v.slot,v.choice from kinokod_votes v join kinokod_players p on p.user_id=v.user_id left join kinokod_steps k on k.user_id=v.user_id and k.slot=v.slot where k.user_id is null and v.choice is not null and v.slot in (0,2,3,4,6)').fetchall()
+            pending=[]
+            for row in rows:
+                uid,slot,choice=row['user_id'],row['slot'],row['choice']
+                if not 0<=choice<3 or not eligible_for_conn(db,uid):continue
+                if now()<dt.datetime.fromisoformat(RELEASES[slot][0]):continue
+                key=f'kc-bridge-{CAMPAIGN}-{slot}'
+                body='🔎 <b>Кими вернулся с новой уликой!</b>\n\n'+s['esc'](CASE_RAILS[slot]['reveal'][choice])+'\n\n'+s['esc'](CASE_RAILS[slot]['question'])
+                keyboard=json.dumps(continuation_buttons(slot),ensure_ascii=False)
+                done=db.execute('insert or ignore into notification_outbox(day,message_key,chat,body,keyboard) values(?,?,?,?,?)',(s['today'](),key,json.dumps(uid),body,keyboard)).rowcount
+                if done:pending.append(key)
+        for key in set(pending):s['retry_notifications'](key)
     def callback(q):
         data=q.get('data','')
         if not data.startswith('kc:'):return old_callback(q)
         uid=(q.get('from') or {}).get('id')
         if q.get('id')!='max':s['api']('answerCallbackQuery',{'callback_query_id':q.get('id')})
         if not uid or not eligible(uid):return
-        try:_,a,b=data.split(':');slot=int(a)
+        bits=data.split(':')
+        if len(bits) not in (3,4):return
+        try:slot=int(bits[1])
         except ValueError:return
         if not 0<=slot<len(RELEASES) or now()<dt.datetime.fromisoformat(RELEASES[slot][0]):return
+        b=bits[2]
+        if len(bits)==4:
+            if b!='next' or slot not in CASE_RAILS:return
+            try: action=int(bits[3])
+            except ValueError:return
+            if action not in (0,1,2):return
+            with s['conn']() as db:
+                tables(db)
+                chosen=db.execute('select choice from kinokod_votes where user_id=? and slot=?',(uid,slot)).fetchone()
+                if chosen is None or chosen['choice'] is None:return
+                inserted=db.execute('insert or ignore into kinokod_steps(user_id,slot,action,updated) values(?,?,?,?)',(uid,slot,action,int(time.time()))).rowcount
+                db.execute('update notification_outbox set delivered=-2 where chat=? and message_key=? and delivered=0',(json.dumps(uid),f'kc-bridge-{CAMPAIGN}-{slot}'))
+            if inserted:resolve_step(uid,slot,action)
+            else:s['send'](uid,'✅ Этот шаг уже пройден. Улика сохранена, следующий выпуск придёт по расписанию.')
+            return
         if b=='open' and slot==0:
             with s['conn']() as c:
                 tables(c)
                 c.execute('insert or ignore into kinokod_players(user_id,joined_at) values(?,?)',(uid,int(time.time())))
             s['send'](uid,'🎬 '+RELEASES[0][1]+'\n\n'+RELEASES[0][2],buttons(0))
             s['send'](uid,'🕵️ Я Кими, твой напарник по расследованию. Можешь спросить меня прямо здесь: «Кими, почему часы остановились на 17:24?»')
+            return
+        if b=='skip' and slot in (1,5):
+            with s['conn']() as db:
+                tables(db)
+                prior=db.execute('select photo,caption from kinokod_votes where user_id=? and slot=?',(uid,slot)).fetchone()
+                if prior is None:
+                    db.execute('insert into kinokod_votes(user_id,slot,caption,updated) values(?,?,?,?)',(uid,slot,'SKIPPED',int(time.time())))
+                    first=True
+                else:first=False
+            s['send'](uid,s['esc'](PHOTO_CLOSURES[slot]) if first else '✅ Этот эпизод уже сохранён.')
             return
         if b=='photo' and slot in (1,5):
             with s['conn']() as c:
@@ -162,11 +302,19 @@ def install(s):
         try:choice=int(b)
         except ValueError:return
         if RELEASES[slot][3] is None or not 0<=choice<3:return
-        with s['conn']() as c:
-            tables(c)
-            c.execute('insert or ignore into kinokod_players(user_id,joined_at) values(?,?)',(uid,int(time.time())))
-        record(uid,slot,choice=choice)
-        threading.Thread(target=kimi_answer,args=(uid,slot,choice),daemon=True).start()
+        with s['conn']() as db:
+            tables(db)
+            db.execute('insert or ignore into kinokod_players(user_id,joined_at) values(?,?)',(uid,int(time.time())))
+            before=db.execute('select choice from kinokod_votes where user_id=? and slot=?',(uid,slot)).fetchone()
+            first=before is None or before['choice'] is None
+            if first:
+                db.execute('insert into kinokod_votes(user_id,slot,choice,updated) values(?,?,?,?) on conflict(user_id,slot) do update set choice=excluded.choice,updated=excluded.updated',(uid,slot,choice,int(time.time())))
+            else:choice=before['choice']
+            completed=db.execute('select 1 from kinokod_steps where user_id=? and slot=?',(uid,slot)).fetchone()
+        if completed:
+            s['send'](uid,'✅ Улика и твой следующий ход уже сохранены. Не теряй нить: новый выпуск придёт по расписанию.')
+            return
+        reveal_choice(uid,slot,choice)
     def message(msg):
         uid=(msg.get('from') or {}).get('id')
         if not uid or (msg.get('chat') or {}).get('type')!='private' or not eligible(uid):return old_message(msg)
@@ -200,6 +348,7 @@ def install(s):
                 if photo_id:
                     record(uid,slot,photo=photo_id,caption=caption[:250])
                     s['send'](uid,'📷 Улика получена. Изучаю, что действительно видно в кадре.')
+                    s['send'](uid,s['esc'](PHOTO_CLOSURES[slot]))
                     threading.Thread(target=kimi_photo,args=(uid,photo_id,str((msg.get('max_photo') or {}).get('url') or ''),slot),daemon=True).start()
                     return
         return old_message(msg)
@@ -267,6 +416,7 @@ def install(s):
             if clock>=dt.datetime.fromisoformat(r[0]) and clock<dt.datetime.fromisoformat('2026-10-24T00:00:00+03:00'):post(i)
         if clock>=dt.datetime.fromisoformat('2026-10-23T19:00:00+03:00') and clock<dt.datetime.fromisoformat('2026-10-25T00:00:00+03:00'):finale()
         retry_visuals()
+        existing_continuations()
     def reminders():
         tick()
         return old_reminders()
