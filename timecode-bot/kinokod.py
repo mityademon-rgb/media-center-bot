@@ -32,7 +32,7 @@ def install(s):
     def eligible(uid):
         with s['conn']() as c:
             r=c.execute('select role, enabled from users where id=?',(uid,)).fetchone()
-            if not r or not r['enabled'] or r['role']=='admin':return False
+            if not r or not r['enabled']:return False
             if r['role']=='teacher':
                 t=c.execute("select name from sqlite_master where type='table' and name='teacher_modes'").fetchone()
                 if not t:return False
@@ -49,6 +49,33 @@ def install(s):
         with s['conn']() as c:
             tables(c)
             c.execute('insert into kinokod_votes(user_id,slot,choice,photo,caption,updated) values(?,?,?,?,?,?) on conflict(user_id,slot) do update set choice=excluded.choice,photo=excluded.photo,caption=excluded.caption,updated=excluded.updated',(uid,slot,choice,photo,caption,int(time.time())))
+    def kimi_answer(uid,slot,choice):
+        selected=RELEASES[slot][3][choice]
+        try:
+            with s['conn']() as db:
+                history=[{'episode':r['slot'],'answer':RELEASES[r['slot']][3][r['choice']]} for r in db.execute('select slot,choice from kinokod_votes where user_id=? and choice is not null order by slot',(uid,)) if r['slot']<len(RELEASES) and RELEASES[r['slot']][3] and r['choice'] is not None]
+            obj=s['ai_json'](
+                'Ты Кими, детектив TIMECODE, общаешься лично с подростком 12+. Ты режиссёр-иронист, не робот-тестировщик. На исторической площадке в Сириусе пропала камера с альтернативным финалом. Реальная разгадка скрыта до 23 октября: реквизитор спрятал камеру по просьбе гримёрши, оператор видел перенос. Не раскрывай этот факт сейчас. Предложи живую сюжетную реакцию с одной неожиданной деталью или уточняющим вопросом. Не выдумывай поступки ребёнка. Верни JSON {"reply":"..."}, от 70 до 320 символов.',
+                json.dumps({'episode':slot,'choice':selected,'previous':history},ensure_ascii=False),200) if s.get('AI_KEY') else None
+            reply=str((obj or {}).get('reply','')).strip()
+            if 60<=len(reply)<=390:
+                s['send'](uid,'🕵️ <b>Кими:</b> '+s['esc'](reply))
+                return
+        except Exception as error:
+            print('KinoKod Kimi text:',type(error).__name__,flush=True)
+        s['send'](uid,'🕵️ <b>Кими:</b> Версию '+s['esc'](selected)+' записал. Интересно, а кто и зачем остановил часы именно в 17:24? Не спеши с обвинениями: завтра проверим алиби.')
+    def kimi_photo(uid,photo,url,slot):
+        try:
+            import creative_digest
+            observed=creative_digest.inspect_photo(s,photo,url)
+            comment=observed[:550]
+            with s['conn']() as db:
+                db.execute('create table if not exists kinokod_visions(user_id integer not null,slot integer not null,comment text not null,updated integer not null,primary key(user_id,slot))')
+                db.execute('insert into kinokod_visions(user_id,slot,comment,updated) values(?,?,?,?) on conflict(user_id,slot) do update set comment=excluded.comment,updated=excluded.updated',(uid,slot,comment,int(time.time())))
+            s['send'](uid,'🎞 <b>Кими рассматривает твою улику:</b> '+s['esc'](comment))
+        except Exception as error:
+            print('KinoKod photo review:',type(error).__name__,flush=True)
+            s['send'](uid,'📷 Улику сохранил. Рассмотреть детали кадра пока не получилось, но фотография останется в деле.')
     def callback(q):
         data=q.get('data','')
         if not data.startswith('kc:'):return old_callback(q)
@@ -62,7 +89,7 @@ def install(s):
             with s['conn']() as c:
                 tables(c)
                 c.execute('insert or ignore into kinokod_players(user_id,joined_at) values(?,?)',(uid,int(time.time())))
-            s['send'](uid,'🎬 '+RELEASES[0][1]+'\\n\\n'+RELEASES[0][2],buttons(0))
+            s['send'](uid,'🎬 '+RELEASES[0][1]+'\n\n'+RELEASES[0][2],buttons(0))
             return
         if b=='photo' and slot in (1,5):
             with s['conn']() as c:
@@ -77,7 +104,7 @@ def install(s):
             tables(c)
             c.execute('insert or ignore into kinokod_players(user_id,joined_at) values(?,?)',(uid,int(time.time())))
         record(uid,slot,choice=choice)
-        s['send'](uid,'🔍 Версия принята. Кими сохранил твой выбор. Следующая улика появится по расписанию.')
+        kimi_answer(uid,slot,choice)
     def message(msg):
         uid=(msg.get('from') or {}).get('id')
         if not uid or (msg.get('chat') or {}).get('type')!='private' or not eligible(uid):return old_message(msg)
@@ -98,7 +125,8 @@ def install(s):
                 photo_id=media[-1].get('file_id') if isinstance(media,list) else ''
                 if photo_id:
                     record(uid,slot,photo=photo_id,caption=caption[:250])
-                    s['send'](uid,'📷 Улика сохранена. Кими добавит её к материалам расследования.')
+                    s['send'](uid,'📷 Улика получена. Изучаю, что действительно видно в кадре.')
+                    kimi_photo(uid,photo_id,str((msg.get('max_photo') or {}).get('url') or ''),slot)
                     return
         return old_message(msg)
     def post(slot):
@@ -115,7 +143,7 @@ def install(s):
         s['retry_notifications'](key)
     def eligible_for_conn(c,uid):
         r=c.execute('select role from users where id=?',(uid,)).fetchone()
-        if not r or r['role']=='admin':return False
+        if not r:return False
         if r['role']=='teacher':
             t=c.execute("select name from sqlite_master where type='table' and name='teacher_modes'").fetchone()
             if not t:return False
@@ -126,7 +154,7 @@ def install(s):
         with s['conn']() as c:
             tables(c)
             if c.execute('select slot from kinokod_posts where slot=7').fetchone():return
-            rows=c.execute('select choice,count(*) as votes from kinokod_votes where slot=6 and choice is not null group by choice order by votes desc, choice asc').fetchall()
+            rows=c.execute("select v.choice,count(*) as votes from kinokod_votes v join users u on u.id=v.user_id where v.slot=6 and v.choice is not null and u.role!='admin' group by v.choice order by votes desc, v.choice asc").fetchall()
             winner=int(rows[0]['choice']) if rows else 2
             text='🎬 КИНОКОД · ФИНАЛ\n\n'+ENDING[winner]+'\n\n'+TRUTH+'\n\nКадр закрыт. А настоящие детективы знают: доказательства важнее догадок.'
             users=[r['id'] for r in c.execute('select id from users where enabled=1').fetchall()]
@@ -145,12 +173,12 @@ def install(s):
         with s['conn']() as c:
             tables(c)
             people=[r['id'] for r in c.execute('select id from users where enabled=1').fetchall()]
-            intro=('Привет, следователи! 🎬 Сегодня у нас детектив! На съёмочной площадке '
+            intro=('Привет, следователи! 🎬 На связи Кими, ваш временно назначенный детектив! Сегодня у нас детектив! На съёмочной площадке '
                    'исторического фильма в Сириусе пропала старинная кинокамера. '
                    'Вступай в «Кинокод»: найдём улики, допросим подозреваемых и раскроем '
                    'тайну в пятницу. Нажми кнопку и начни расследование.')
             if day!='2026-10-20':
-                intro='🎬 Следователи ещё принимают новичков! Камера не найдена, улики ждут. Присоединяйся к «Кинокоду» до пятничной развязки.'
+                intro='🔍 Это снова Кими. Я всё ещё ищу напарников: камера исчезла, а улик только больше. Вступай в «Кинокод» до пятничной развязки. Я расскажу, что мы уже узнали.'
             keyboard=[[{'text':'🔎 Начать расследование','callback_data':'kc:0:open'}]]
             for uid in people:
                 if eligible_for_conn(c,uid) and not c.execute('select 1 from kinokod_players where user_id=?',(uid,)).fetchone():
