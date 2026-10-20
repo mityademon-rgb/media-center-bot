@@ -3,6 +3,8 @@ import datetime as dt
 import hashlib
 import json
 import time
+import threading
+from pathlib import Path
 
 CAMPAIGN = 'kinokod20261020'
 TZ = dt.timezone(dt.timedelta(hours=3))
@@ -23,7 +25,7 @@ ENDING = {
 TRUTH = 'Истина: реквизитор спрятал камеру по просьбе гримёрши, а оператор случайно снял перенос. Плёнку спасли, но скрытность едва не сорвала съёмку. Лучший финал — когда съёмочная группа знает правду.'
 def tables(c):
     c.executescript("""create table if not exists kinokod_votes (user_id integer not null, slot integer not null, choice integer, photo text, caption text, updated integer not null, primary key(user_id,slot));
-create table if not exists kinokod_posts (slot integer primary key, sent_at integer not null);\ncreate table if not exists kinokod_players (user_id integer primary key, joined_at integer not null);""")
+create table if not exists kinokod_posts (slot integer primary key, sent_at integer not null);\ncreate table if not exists kinokod_players (user_id integer primary key, joined_at integer not null);\ncreate table if not exists kinokod_visuals (user_id integer not null, slot integer not null, delivered integer not null default 0, attempts integer not null default 0, next_at integer not null default 0, primary key(user_id,slot));""")
 
 def install(s):
     old_message=s['bot_message']
@@ -49,6 +51,40 @@ def install(s):
         with s['conn']() as c:
             tables(c)
             c.execute('insert into kinokod_votes(user_id,slot,choice,photo,caption,updated) values(?,?,?,?,?,?) on conflict(user_id,slot) do update set choice=excluded.choice,photo=excluded.photo,caption=excluded.caption,updated=excluded.updated',(uid,slot,choice,photo,caption,int(time.time())))
+    def send_visual(uid,slot):
+        """Send an original illustrated scene as an actual image on each platform."""
+        image=(Path(__file__).parent/'static'/('kinokod-'+str(slot)+'.png'))
+        if not image.is_file():return False
+        data=image.read_bytes()
+        if len(data)>4_000_000:return False
+        import shared_media
+        with s['conn']() as db:
+            is_max=(uid<0 and s['max_transport'].internal_id(db,'max',-uid) is not None)
+        caption=('🎬 КИНОКОД · '+('Начинаем расследование' if slot==-1 else RELEASES[slot][1]))[:250]
+        if is_max:
+            upload=s['max_transport'].api('POST','/uploads?type=image',s['MAX_TOKEN'])
+            body,headers=shared_media.multipart({},'data',data)
+            headers['Authorization']=s['MAX_TOKEN']
+            result=json.loads(shared_media.request(upload['url'],body,headers))
+            token=str(result.get('token') or next((v.get('token') for v in (result.get('photos') or {}).values() if isinstance(v,dict) and v.get('token')),''))
+            if not token:return False
+            response=s['max_transport'].send_image(-uid,token,s['esc'](caption),s['MAX_TOKEN'])
+            return bool(response and response.get('ok'))
+        body,headers=shared_media.multipart({'chat_id':str(uid),'caption':caption},'photo',data)
+        result=json.loads(shared_media.request('https://api.telegram.org/bot'+s['TOKEN']+'/sendPhoto',body,headers,telegram=True))
+        return bool(result.get('ok'))
+    def retry_visuals():
+        with s['conn']() as db:
+            tables(db)
+            rows=db.execute('select user_id,slot,attempts from kinokod_visuals where delivered=0 and next_at<=? order by slot,user_id limit 3',(int(time.time()),)).fetchall()
+        for row in rows:
+            uid,slot=row['user_id'],row['slot']
+            if not eligible(uid):continue
+            ok=False
+            try:ok=send_visual(uid,slot)
+            except Exception as exc:print('KinoKod visual:',type(exc).__name__,flush=True)
+            with s['conn']() as db:
+                db.execute('update kinokod_visuals set delivered=?,attempts=attempts+1,next_at=? where user_id=? and slot=? and delivered=0',(1 if ok else 0,int(time.time())+(300 if not ok else 0),uid,slot))
     def kimi_answer(uid,slot,choice):
         selected=RELEASES[slot][3][choice]
         try:
@@ -104,7 +140,7 @@ def install(s):
             tables(c)
             c.execute('insert or ignore into kinokod_players(user_id,joined_at) values(?,?)',(uid,int(time.time())))
         record(uid,slot,choice=choice)
-        kimi_answer(uid,slot,choice)
+        threading.Thread(target=kimi_answer,args=(uid,slot,choice),daemon=True).start()
     def message(msg):
         uid=(msg.get('from') or {}).get('id')
         if not uid or (msg.get('chat') or {}).get('type')!='private' or not eligible(uid):return old_message(msg)
@@ -126,7 +162,7 @@ def install(s):
                 if photo_id:
                     record(uid,slot,photo=photo_id,caption=caption[:250])
                     s['send'](uid,'📷 Улика получена. Изучаю, что действительно видно в кадре.')
-                    kimi_photo(uid,photo_id,str((msg.get('max_photo') or {}).get('url') or ''),slot)
+                    threading.Thread(target=kimi_photo,args=(uid,photo_id,str((msg.get('max_photo') or {}).get('url') or ''),slot),daemon=True).start()
                     return
         return old_message(msg)
     def post(slot):
@@ -139,6 +175,7 @@ def install(s):
             key='kc-'+CAMPAIGN+'-'+str(slot)
             for uid in users:
                 if not eligible_for_conn(c,uid) or not c.execute('select 1 from kinokod_players where user_id=?',(uid,)).fetchone():continue
+                c.execute('insert or ignore into kinokod_visuals(user_id,slot) values(?,?)',(uid,slot))
                 c.execute('insert or ignore into notification_outbox(day,message_key,chat,body,keyboard) values(?,?,?,?,?)',(at[:10],key,json.dumps(uid),s['esc']('🎬 КИНОКОД · '+title+'\n\n'+body),json.dumps(buttons(slot),ensure_ascii=False)))
         s['retry_notifications'](key)
     def eligible_for_conn(c,uid):
@@ -183,6 +220,7 @@ def install(s):
             for uid in people:
                 if eligible_for_conn(c,uid) and not c.execute('select 1 from kinokod_players where user_id=?',(uid,)).fetchone():
                     c.execute('insert or ignore into notification_outbox(day,message_key,chat,body,keyboard) values(?,?,?,?,?)',(day,key,json.dumps(uid),s['esc'](intro),json.dumps(keyboard,ensure_ascii=False)))
+                    c.execute('insert or ignore into kinokod_visuals(user_id,slot) values(?,-1)',(uid,))
         s['retry_notifications'](key)
     def tick():
         clock=now()
@@ -190,6 +228,7 @@ def install(s):
         for i,r in enumerate(RELEASES):
             if clock>=dt.datetime.fromisoformat(r[0]) and clock<dt.datetime.fromisoformat('2026-10-24T00:00:00+03:00'):post(i)
         if clock>=dt.datetime.fromisoformat('2026-10-23T19:00:00+03:00') and clock<dt.datetime.fromisoformat('2026-10-25T00:00:00+03:00'):finale()
+        retry_visuals()
     def reminders():
         tick()
         return old_reminders()
