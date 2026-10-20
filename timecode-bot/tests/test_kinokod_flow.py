@@ -22,6 +22,7 @@ class KinoKodStoryTests(unittest.TestCase):
           unique(day,message_key,chat));
         create table notification_unreachable(chat text primary key,reason text,created integer);
         """)
+        kinokod.tables(self.db)
         self.messages=[]
         self.when=dt.datetime.fromisoformat('2026-10-20T14:05:00+03:00')
         def send(uid,body,keyboard=None):
