@@ -24,9 +24,45 @@
     ['05', 'Видео', 'Короткие сцены по описанию или изображению. Сначала сценарий и отдельные планы, затем генерация и монтаж.', 'Уточнить задачу с Кими'],
     ['06', 'Источники и документы', 'Найти смысл в ваших материалах, сопоставить, составить конспект. Просите опору на конкретные фрагменты.', 'Начать с текста источника']
   ];
-  const previousHome = home, previousRender = render, previousDock = renderDock;
+  const previousHome = home, previousRender = render, previousDock = renderDock, previousProfile = profile;
   const teacherAccess = () => !!state?.me && ['teacher', 'admin'].includes(state.me.role);
   home = function() { return previousHome() + (teacherAccess() ? `<section class="section neuro-entry"><span class="tag">МАСТЕРСКАЯ ПРЕПОДАВАТЕЛЯ / КИМИ</span><h2>Есть задача.<br>Найдём нейросеть.</h2><p>Занятие, афиша, программа, отчёт. Кими предложит маршрут и напишет запросы для каждого шага.</p><button class="btn" onclick="openNeuro()">Нейросети →</button></section>` : ''); };
+  // MAX has its own signed account ID: a Telegram admin is not automatically
+  // an admin on MAX. Offer existing one-time login without changing role tables
+  // or exposing the educator course to registered children.
+  profile = function() {
+    const original = previousProfile();
+    if (!state?.me || !isMax || teacherAccess()) return original;
+    return original + `<section class="section neuro"><div class="eyebrow">TIMECODE / ДОСТУП ПРЕПОДАВАТЕЛЯ</div>
+      <h2>Нейросети для преподавателей</h2>
+      <p>В MAX используется отдельная учётная запись. Если вы преподаватель или редактор TIMECODE, подтвердите свой доступ кодом из своего Telegram-аккаунта.</p>
+      <p>Напишите <strong>/login</strong> боту TIMECODE в Telegram, затем введите выданный код здесь. Он действует пять минут.</p>
+      <form id="neuro-role-login" onsubmit="enterTeacherCode(event)">
+        <label class="field">Одноразовый код<input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>
+        <button class="btn violet" type="submit">Открыть Нейросети →</button>
+      </form></section>`;
+  };
+  window.enterTeacherCode = async function(event) {
+    event.preventDefault();
+    if (!isMax) return;
+    const code = String(new FormData(event.target).get('code') || '').trim();
+    if (!/^[0-9]{6}$/.test(code)) return toast('Нужен шестизначный код');
+    try {
+      const credential = await req('auth', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
+      const oldAuth = auth;
+      auth = credential.token;
+      const nextState = await req('state');
+      if (!['teacher','admin'].includes(nextState?.me?.role)) {
+        auth = oldAuth;
+        throw Error('Этот код не подтверждает доступ преподавателя или редактора.');
+      }
+      localStorage.setItem(authKey, auth);
+      state = nextState;
+      tab = 'neuro';
+      render();
+      toast('Доступ к Нейросетям подтверждён');
+    } catch (error) { toast(error.message || 'Не удалось подтвердить вход'); }
+  };
   renderDock = function() {
     previousDock();
     const dock = document.querySelector('#dock');
