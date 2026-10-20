@@ -35,9 +35,9 @@
     // Mobile dock has only five visible positions. Never add a seventh,
     // otherwise the teacher's AI entry disappears outside the viewport.
     const links = [
-      ['home', '⌂', 'Сегодня'], ['games', '◉', 'Игры'],
-      ['lessons', '▣', 'Уроки'], ['neuro', '✳', 'Нейросети'],
-      ['profile', '◎', 'Моё']
+      ['home', '⌂', 'Сегодня'], ['schedule', '▦', 'Расписание'],
+      ['games', '◉', 'Игры'], ['neuro', '✳', 'Нейросети'],
+      ['more', '⋯', 'Ещё']
     ];
     dock.innerHTML = links.map(([id, icon, title]) =>
       `<button class="${tab===id?'active':''}" onclick="${id==='neuro'?'openNeuro()':`go('${id}')`}"><b>${icon}</b>${title}</button>`
@@ -45,6 +45,16 @@
     dock.classList.add('neuro-dock');
   };
   render = function() {
+    if (tab === 'more' && state && teacherAccess()) {
+      document.body.classList.remove('arcade-playing');
+      renderDock();
+      document.querySelector('#app').innerHTML = `<section class="section neuro"><div class="eyebrow">TIMECODE / РАЗДЕЛЫ</div><h1>Ещё</h1><div class="grid">
+        <article class="card"><h2>▣ Уроки</h2><p>Расписание занятий, задания и материалы.</p><button class="btn violet" onclick="go('lessons')">Открыть уроки →</button></article>
+        <article class="card"><h2>✧ Словарь</h2><p>Термины кино и телевидения.</p><button class="btn violet" onclick="go('glossary')">Открыть словарь →</button></article>
+        <article class="card"><h2>◎ Моё</h2><p>Профиль и настройки участия.</p><button class="btn violet" onclick="go('profile')">Открыть профиль →</button></article>
+      </div></section>`;
+      return;
+    }
     if (tab !== 'neuro' || !state) return previousRender();
     if (!teacherAccess()) { tab = 'home'; return previousRender(); }
     if (owner !== state.me.id) { owner = state.me.id; messages = []; draft = ''; error = ''; }
