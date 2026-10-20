@@ -58,6 +58,9 @@ def install(s):
         try:_,a,b=data.split(':');slot=int(a)
         except ValueError:return
         if not 0<=slot<len(RELEASES) or now()<dt.datetime.fromisoformat(RELEASES[slot][0]):return
+        if b=='open' and slot==0:
+            s['send'](uid,'🎬 '+RELEASES[0][1]+'\\n\\n'+RELEASES[0][2],buttons(0))
+            return
         if b=='photo' and slot in (1,5):
             with s['conn']() as c:
                 tables(c)
@@ -127,8 +130,22 @@ def install(s):
                 if eligible_for_conn(c,uid):
                     c.execute('insert or ignore into notification_outbox(day,message_key,chat,body) values(?,?,?,?)',('2026-10-23',key,json.dumps(uid),s['esc'](text)))
         s['retry_notifications'](key)
+    def invitation():
+        key='kc-'+CAMPAIGN+'-invitation'
+        with s['conn']() as c:
+            tables(c)
+            if c.execute('select slot from kinokod_posts where slot=-1').fetchone():return
+            c.execute('insert or ignore into kinokod_posts(slot,sent_at) values(-1,?)',(int(time.time()),))
+            audience=[r['id'] for r in c.execute('select id from users where enabled=1').fetchall()]
+            intro='Привет, следователи! 🎬 Сегодня у нас детектив! На съёмочной площадке исторического фильма в Сириусе пропала старинная кинокамера. Без неё не получится снять финал. Здесь будут улики, подозреваемые, фото-задания и настоящая развязка в пятницу. Готовы раскрыть «Кинокод»? Нажмите кнопку, чтобы открыть первое дело. Никаких команд вводить не нужно.'
+            keyboard=[[{'text':'🔎 Начать расследование','callback_data':'kc:0:open'}]]
+            for uid in audience:
+                if eligible_for_conn(c,uid):
+                    c.execute('insert or ignore into notification_outbox(day,message_key,chat,body,keyboard) values(?,?,?,?,?)',('2026-10-20',key,json.dumps(uid),s['esc'](intro),json.dumps(keyboard,ensure_ascii=False)))
+        s['retry_notifications'](key)
     def tick():
         clock=now()
+        if dt.datetime.fromisoformat('2026-10-20T12:00:00+03:00')<=clock<dt.datetime.fromisoformat('2026-10-24T00:00:00+03:00'):invitation()
         for i,r in enumerate(RELEASES):
             if clock>=dt.datetime.fromisoformat(r[0]) and clock<dt.datetime.fromisoformat('2026-10-24T00:00:00+03:00'):post(i)
         if clock>=dt.datetime.fromisoformat('2026-10-23T19:00:00+03:00') and clock<dt.datetime.fromisoformat('2026-10-25T00:00:00+03:00'):finale()
