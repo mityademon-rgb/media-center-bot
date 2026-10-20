@@ -287,10 +287,9 @@ def install(s):
             with s['conn']() as db:
                 tables(db)
                 prior=db.execute('select photo,caption from kinokod_votes where user_id=? and slot=?',(uid,slot)).fetchone()
-                if prior is None:
-                    db.execute('insert into kinokod_votes(user_id,slot,caption,updated) values(?,?,?,?)',(uid,slot,'SKIPPED',int(time.time())))
-                    first=True
-                else:first=False
+                first=prior is None or (not prior['photo'] and not prior['caption'])
+                if first:
+                    db.execute('insert into kinokod_votes(user_id,slot,caption,updated) values(?,?,?,?) on conflict(user_id,slot) do update set caption=excluded.caption,updated=excluded.updated',(uid,slot,'SKIPPED',int(time.time())))
             s['send'](uid,s['esc'](PHOTO_CLOSURES[slot]) if first else '✅ Этот эпизод уже сохранён.')
             return
         if b=='photo' and slot in (1,5):
