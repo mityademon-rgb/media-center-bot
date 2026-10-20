@@ -39,7 +39,7 @@ SELFIES=(
 def hunt(day,period):return HUNTS[period][dt.date.fromisoformat(day).toordinal()%len(HUNTS[period])]
 
 def install(s):
-    old_message=s['bot_message'];old_callback=s['callback'];old_init=s['init']
+    old_message=s['bot_message'];old_callback=s['callback'];old_init=s['init'];old_reminders=s['class_reminders']
     def tables(c):
         c.execute('''create table if not exists photo_hunts(user_id integer not null,day text not null,period text not null,task text not null,comment text not null default '',primary key(user_id,day,period))''')
     def init():
@@ -161,4 +161,15 @@ def install(s):
             with s['conn']() as c:c.execute("update users set stage='instant' where id=? and stage=''",(row['id'],))
             s['send'](row['id'],text)
 
-    s.update(init=init,bot_message=message,callback=callback,morning=lambda:invitation('am'),evening=lambda:invitation('pm'),offer_checkin_photo=offer,reminder=lambda period:None,instant_photo=selfie)
+    def reminders():
+        # Catch up within the original response window if the scheduler missed
+        # 18:00 or the old direct-send left no durable delivery record.
+        local=s['now']()
+        if '18:00' <= local.strftime('%H:%M') < '20:00':
+            key='evening-checkin:'+s['today']()
+            with s['conn']() as c:
+                already=c.execute('select 1 from notification_outbox where day=? and message_key=? limit 1',(s['today'](),key)).fetchone()
+            if not already:invitation('pm')
+        return old_reminders()
+
+    s.update(init=init,bot_message=message,callback=callback,morning=lambda:invitation('am'),evening=lambda:invitation('pm'),offer_checkin_photo=offer,reminder=lambda period:None,instant_photo=selfie,class_reminders=reminders)
