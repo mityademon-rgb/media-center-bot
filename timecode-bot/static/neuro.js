@@ -31,11 +31,18 @@
     previousDock();
     if (!teacherAccess()) return;
     const dock = document.querySelector('#dock');
-    const button = document.createElement('button');
-    button.className = tab === 'neuro' ? 'active' : '';
-    button.innerHTML = '<b>✳</b>Нейросети';
-    button.onclick = () => openNeuro();
-    dock.prepend(button); dock.classList.add('neuro-dock');
+    if (!dock) return;
+    // Mobile dock has only five visible positions. Never add a seventh,
+    // otherwise the teacher's AI entry disappears outside the viewport.
+    const links = [
+      ['home', '⌂', 'Сегодня'], ['games', '◉', 'Игры'],
+      ['lessons', '▣', 'Уроки'], ['neuro', '✳', 'Нейросети'],
+      ['profile', '◎', 'Моё']
+    ];
+    dock.innerHTML = links.map(([id, icon, title]) =>
+      `<button class="${tab===id?'active':''}" onclick="${id==='neuro'?'openNeuro()':`go('${id}')`}"><b>${icon}</b>${title}</button>`
+    ).join('');
+    dock.classList.add('neuro-dock');
   };
   render = function() {
     if (tab !== 'neuro' || !state) return previousRender();
