@@ -14,7 +14,7 @@ class PlayfulTests(unittest.TestCase):
         self.s=vars(server).copy();self.old=Mock();self.clock=dt.datetime(2026,10,10,9,15)
         self.s.update(bot_message=self.old,callback=Mock(),send=Mock(return_value={'ok':True}),api=Mock(),
                       allowed=lambda uid:uid in (42,-17,11),today=lambda:'2026-10-10',now=lambda:self.clock,
-                      checkin_open=lambda period:period==('am' if self.clock.hour<12 else 'pm'),photo_comment=Mock(return_value='Боковой свет выделил край чашки.'),retry_notifications=Mock(),GROUP='')
+                      checkin_open=lambda period:period==('am' if self.clock.hour<12 else 'pm'),photo_comment=Mock(return_value='Боковой свет выделил край чашки.'),retry_notifications=Mock(),class_reminders=Mock(),GROUP='')
         playful_checkins.install(self.s);self.s['init']()
 
     def tearDown(self):self.temp.cleanup()
@@ -55,6 +55,18 @@ class PlayfulTests(unittest.TestCase):
         self.assertEqual(len(__import__('json').loads(rows[0]['keyboard'])),4)
         self.assertEqual(self.s['retry_notifications'].call_count,2)
         self.s['send'].assert_not_called()
+
+    def test_catchup_evening_when_scheduler_slot_missing(self):
+        self.clock=dt.datetime(2026,10,10,18,30)
+        self.s['class_reminders']()
+        with server.conn() as c:
+            count=c.execute("select count(*) from notification_outbox where message_key='evening-checkin:2026-10-10'").fetchone()[0]
+        self.assertEqual(count,2)
+        self.s['class_reminders']()
+        with server.conn() as c:
+            duplicate=c.execute("select count(*) from notification_outbox where message_key='evening-checkin:2026-10-10'").fetchone()[0]
+        self.assertEqual(duplicate,2)
+        self.assertEqual(self.s['retry_notifications'].call_count,1)
 
     def test_old_day_does_not_modify_today(self):
         self.click('am',0,day='2026-10-09')
