@@ -25,7 +25,9 @@ ENDING = {
 TRUTH = 'Истина: реквизитор спрятал камеру по просьбе гримёрши, а оператор случайно снял перенос. Плёнку спасли, но скрытность едва не сорвала съёмку. Лучший финал — когда съёмочная группа знает правду.'
 def tables(c):
     c.executescript("""create table if not exists kinokod_votes (user_id integer not null, slot integer not null, choice integer, photo text, caption text, updated integer not null, primary key(user_id,slot));
-create table if not exists kinokod_posts (slot integer primary key, sent_at integer not null);\ncreate table if not exists kinokod_players (user_id integer primary key, joined_at integer not null);\ncreate table if not exists kinokod_visuals (user_id integer not null, slot integer not null, delivered integer not null default 0, attempts integer not null default 0, next_at integer not null default 0, primary key(user_id,slot));""")
+create table if not exists kinokod_posts (slot integer primary key, sent_at integer not null);
+create table if not exists kinokod_players (user_id integer primary key, joined_at integer not null);
+create table if not exists kinokod_visuals (user_id integer not null, slot integer not null, delivered integer not null default 0, attempts integer not null default 0, next_at integer not null default 0, primary key(user_id,slot));""")
 
 def install(s):
     old_message=s['bot_message']
