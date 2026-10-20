@@ -201,7 +201,7 @@ def install(s):
             with s['conn']() as db:
                 answers=[{'scene':r['slot'],'choice':RELEASES[r['slot']][3][r['choice']]} for r in db.execute('select slot,choice from kinokod_votes where user_id=? and choice is not null order by slot',(uid,)) if 0<=r['slot']<len(RELEASES) and RELEASES[r['slot']][3] and r['choice'] is not None]
             obj=s['ai_json'](
-                'Ты Кими, живой детектив и режиссёр квеста TIMECODE «Кинокод» для детей 12+. Действие: историческая съёмочная площадка в Сириусе, пропала старая камера с альтернативным финалом. Отвечай на один вопрос участника конкретно и остроумно, как персонаж истории, до 350 знаков. Можно напомнить известные улики: часы 17:24, реквизиторский шкаф и странная записка. Не разглашай разгадку до вечера пятницы. Не собирай личные данные, не давай опасных советов. Ответ JSON {"reply":"..."}.',
+                'Ты Кими, живой детектив и режиссёр квеста TIMECODE «Кинокод» для детей 12+. Действие: историческая съёмочная площадка в Сириусе, пропала старая камера с альтернативным финалом. Отвечай на один вопрос участника конкретно и остроумно, как персонаж истории, до 350 знаков. НЕ ИЗОБРЕТАЙ новые улики, показания, имена, цифры, записки или события. Известные факты только: часы 17:24, футляр со следами серебристой пыли, запись о переносе 17:26, реквизиторский шкаф и записка о правильном финале. Варианты событий и новые открытия только из сценария. Если факта нет, скажи, что пока неизвестно, и пригласи проверить следующую улику. Не разглашай разгадку до вечера пятницы. Не собирай личные данные, не давай опасных советов. Ответ JSON {"reply":"..."}.',
                 json.dumps({'question':question,'player_choices':answers,'date':s['today']()},ensure_ascii=False),230)
             reply=str((obj or {}).get('reply','')).strip()
             if 30<=len(reply)<=520:
@@ -322,6 +322,15 @@ def install(s):
             for i,r in enumerate(RELEASES):
                 if now()>=dt.datetime.fromisoformat(r[0]):
                     s['send'](uid,'🎬 '+r[1]+'\n\n'+r[2],buttons(i))
+            return
+        if text.lower() in ('продолжить расследование','следующая улика','что дальше?'):
+            with s['conn']() as db:
+                tables(db)
+                row=db.execute('select v.slot,v.choice from kinokod_votes v join kinokod_players p on p.user_id=v.user_id left join kinokod_steps k on k.user_id=v.user_id and k.slot=v.slot where v.user_id=? and v.choice is not null and k.user_id is null and v.slot in (0,2,3,4,6) order by v.slot desc limit 1',(uid,)).fetchone()
+            if row:
+                reveal_choice(uid,row['slot'],row['choice'])
+            else:
+                s['send'](uid,'🎬 Последняя улика уже в деле. Новый эпизод появится по расписанию. Можешь спросить меня: «Кими, что известно о часах?»')
             return
         if text.lower().startswith(('кими,','кими:')):
             with s['conn']() as db:
