@@ -64,7 +64,20 @@ def install(s):
         close=('09:50' if weekend else '09:00') if period=='am' else '20:00'
         text+='\n\n📸 Фотоохота: '+hunt(s['today'](),period)+'\nМожно прислать фото сразу — без анкеты и объяснений. Жду до '+close+'. В '+('10:00' if period=='am' else '20:30')+' соберу ваши режимы и кадры в общий рассказ.'
         with s['conn']() as c:targets=[r['id'] for r in c.execute('select id from users where enabled=1')]
-        for uid in targets:s['send'](uid,text,keys(period))
+        if period == 'pm':
+            # Previous direct send could silently fail after the slot was claimed.
+            # Use the existing durable per-user outbox and its Telegram/MAX retries.
+            import json
+            key='evening-checkin:'+s['today']()
+            with s['conn']() as c:
+                for uid in targets:
+                    if s.get('teacher_daily_enabled') and not s['teacher_daily_enabled'](uid):
+                        continue
+                    c.execute('insert or ignore into notification_outbox(day,message_key,chat,body,keyboard) values(?,?,?,?,?)',
+                              (s['today'](),key,json.dumps(uid),s['esc'](text),json.dumps(keys(period),ensure_ascii=False)))
+            s['retry_notifications'](key)
+        else:
+            for uid in targets:s['send'](uid,text,keys(period))
         if s.get('GROUP'):s['send'](s['GROUP'],text+'\nВыбирай режим в личном чате с ботом.')
 
     def callback(q):
