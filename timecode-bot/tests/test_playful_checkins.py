@@ -11,10 +11,11 @@ class PlayfulTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();server.DB=Path(self.temp.name)/'bot.db';server.ADMINS={11}
         server.init();server.roster(42,'Саша');server.roster(-17,'Маша')
+        with server.conn() as c:c.execute("update users set stage='' where id in (42,-17)")
         self.s=vars(server).copy();self.old=Mock();self.clock=dt.datetime(2026,10,10,9,15)
         self.s.update(bot_message=self.old,callback=Mock(),send=Mock(return_value={'ok':True}),api=Mock(),
                       allowed=lambda uid:uid in (42,-17,11),today=lambda:'2026-10-10',now=lambda:self.clock,
-                      checkin_open=lambda period:period==('am' if self.clock.hour<12 else 'pm'),photo_comment=Mock(return_value='Боковой свет выделил край чашки.'),retry_notifications=Mock(),class_reminders=Mock(),GROUP='')
+                      checkin_open=lambda period:period==('am' if self.clock.hour<12 else 'pm'),photo_comment=Mock(return_value='Боковой свет выделил край чашки.'),retry_notifications=Mock(),class_reminders=Mock(),teacher_daily_enabled=lambda uid:True,GROUP='')
         playful_checkins.install(self.s);self.s['init']()
 
     def tearDown(self):self.temp.cleanup()
