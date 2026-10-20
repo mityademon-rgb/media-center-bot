@@ -82,11 +82,20 @@ def install(s):
         for row in rows:
             uid,slot=row['user_id'],row['slot']
             if not eligible(uid):continue
-            ok=False
-            try:ok=send_visual(uid,slot)
-            except Exception as exc:print('KinoKod visual:',type(exc).__name__,flush=True)
             with s['conn']() as db:
-                db.execute('update kinokod_visuals set delivered=?,attempts=attempts+1,next_at=? where user_id=? and slot=? and delivered=0',(1 if ok else 0,int(time.time())+(300 if not ok else 0),uid,slot))
+                unreachable=db.execute("select 1 from notification_unreachable where chat=?",(json.dumps(uid),)).fetchone()
+                if unreachable:
+                    db.execute('update kinokod_visuals set delivered=-1 where user_id=? and slot=? and delivered=0',(uid,slot))
+                    continue
+            ok=False
+            terminal=False
+            try:ok=send_visual(uid,slot)
+            except Exception as exc:
+                code=getattr(exc,'code',None)
+                terminal=(code in (400,403))
+                print('KinoKod visual error:',type(exc).__name__,str(code) if code is not None else '',flush=True)
+            with s['conn']() as db:
+                db.execute('update kinokod_visuals set delivered=?,attempts=attempts+1,next_at=? where user_id=? and slot=? and delivered=0',(-1 if terminal else 1 if ok else 0,int(time.time())+(300 if not ok else 0),uid,slot))
     def kimi_answer(uid,slot,choice):
         selected=RELEASES[slot][3][choice]
         try:
@@ -102,6 +111,20 @@ def install(s):
         except Exception as error:
             print('KinoKod Kimi text:',type(error).__name__,flush=True)
         s['send'](uid,'🕵️ <b>Кими:</b> Версию '+s['esc'](selected)+' записал. Интересно, а кто и зачем остановил часы именно в 17:24? Не спеши с обвинениями: завтра проверим алиби.')
+    def kimi_chat(uid,question):
+        try:
+            with s['conn']() as db:
+                answers=[{'scene':r['slot'],'choice':RELEASES[r['slot']][3][r['choice']]} for r in db.execute('select slot,choice from kinokod_votes where user_id=? and choice is not null order by slot',(uid,)) if 0<=r['slot']<len(RELEASES) and RELEASES[r['slot']][3] and r['choice'] is not None]
+            obj=s['ai_json'](
+                'Ты Кими, живой детектив и режиссёр квеста TIMECODE «Кинокод» для детей 12+. Действие: историческая съёмочная площадка в Сириусе, пропала старая камера с альтернативным финалом. Отвечай на один вопрос участника конкретно и остроумно, как персонаж истории, до 350 знаков. Можно напомнить известные улики: часы 17:24, реквизиторский шкаф и странная записка. Не разглашай разгадку до вечера пятницы. Не собирай личные данные, не давай опасных советов. Ответ JSON {"reply":"..."}.',
+                json.dumps({'question':question,'player_choices':answers,'date':s['today']()},ensure_ascii=False),230)
+            reply=str((obj or {}).get('reply','')).strip()
+            if 30<=len(reply)<=520:
+                s['send'](uid,'🕵️ <b>Кими:</b> '+s['esc'](reply))
+                return
+        except Exception as error:
+            print('KinoKod chat:',type(error).__name__,flush=True)
+        s['send'](uid,'Кими сейчас не смог подготовить ответ. Твой вопрос получен; попробуй спросить ещё раз немного позже.')
     def kimi_photo(uid,photo,url,slot):
         try:
             import creative_digest
@@ -128,6 +151,7 @@ def install(s):
                 tables(c)
                 c.execute('insert or ignore into kinokod_players(user_id,joined_at) values(?,?)',(uid,int(time.time())))
             s['send'](uid,'🎬 '+RELEASES[0][1]+'\n\n'+RELEASES[0][2],buttons(0))
+            s['send'](uid,'🕵️ Я Кими, твой напарник по расследованию. Можешь спросить меня прямо здесь: «Кими, почему часы остановились на 17:24?»')
             return
         if b=='photo' and slot in (1,5):
             with s['conn']() as c:
@@ -152,6 +176,18 @@ def install(s):
                 if now()>=dt.datetime.fromisoformat(r[0]):
                     s['send'](uid,'🎬 '+r[1]+'\n\n'+r[2],buttons(i))
             return
+        if text.lower().startswith(('кими,','кими:')):
+            with s['conn']() as db:
+                tables(db)
+                joined=db.execute('select 1 from kinokod_players where user_id=?',(uid,)).fetchone()
+            if joined:
+                question=text[5:].strip()[:400]
+                if len(question)<3:
+                    s['send'](uid,'Спроси меня о какой-нибудь улике. Например: «Кими, почему часы остановились на 17:24?»')
+                else:
+                    s['send'](uid,'🔎 Кими изучает вопрос...')
+                    threading.Thread(target=kimi_chat,args=(uid,question),daemon=True).start()
+                return
         media=msg.get('photo')
         caption=(msg.get('caption') or '').strip()
         if media and dt.datetime.fromisoformat(RELEASES[1][0])<=now()<dt.datetime.fromisoformat('2026-10-23T18:30:00+03:00'):
