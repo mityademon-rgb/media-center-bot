@@ -14,7 +14,7 @@ class PlayfulTests(unittest.TestCase):
         self.s=vars(server).copy();self.old=Mock();self.clock=dt.datetime(2026,10,10,9,15)
         self.s.update(bot_message=self.old,callback=Mock(),send=Mock(return_value={'ok':True}),api=Mock(),
                       allowed=lambda uid:uid in (42,-17,11),today=lambda:'2026-10-10',now=lambda:self.clock,
-                      checkin_open=lambda period:period==('am' if self.clock.hour<12 else 'pm'),photo_comment=Mock(return_value='Боковой свет выделил край чашки.'),GROUP='')
+                      checkin_open=lambda period:period==('am' if self.clock.hour<12 else 'pm'),photo_comment=Mock(return_value='Боковой свет выделил край чашки.'),retry_notifications=Mock(),GROUP='')
         playful_checkins.install(self.s);self.s['init']()
 
     def tearDown(self):self.temp.cleanup()
@@ -43,6 +43,18 @@ class PlayfulTests(unittest.TestCase):
         self.old.assert_called_once()
         with server.conn() as c:r=c.execute('select * from evening_checkins where user_id=42').fetchone()
         self.assertEqual(r['step'],'done');self.assertIn('1%',r['mood'])
+
+    def test_evening_invitation_is_durable_not_fire_and_forget(self):
+        self.clock=dt.datetime(2026,10,10,18,0)
+        self.s['evening']()
+        self.s['evening']()
+        with server.conn() as c:
+            rows=c.execute("select day,message_key,chat,delivered,keyboard from notification_outbox where message_key='evening-checkin:2026-10-10' order by chat").fetchall()
+        self.assertEqual(len(rows),2)
+        self.assertTrue(all(row['delivered']==0 for row in rows))
+        self.assertEqual(len(__import__('json').loads(rows[0]['keyboard'])),4)
+        self.assertEqual(self.s['retry_notifications'].call_count,2)
+        self.s['send'].assert_not_called()
 
     def test_old_day_does_not_modify_today(self):
         self.click('am',0,day='2026-10-09')
