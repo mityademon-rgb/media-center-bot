@@ -23,7 +23,7 @@ ENDING = {
 TRUTH = 'Истина: реквизитор спрятал камеру по просьбе гримёрши, а оператор случайно снял перенос. Плёнку спасли, но скрытность едва не сорвала съёмку. Лучший финал — когда съёмочная группа знает правду.'
 def tables(c):
     c.executescript("""create table if not exists kinokod_votes (user_id integer not null, slot integer not null, choice integer, photo text, caption text, updated integer not null, primary key(user_id,slot));
-create table if not exists kinokod_posts (slot integer primary key, sent_at integer not null);""")
+create table if not exists kinokod_posts (slot integer primary key, sent_at integer not null);\ncreate table if not exists kinokod_players (user_id integer primary key, joined_at integer not null);""")
 
 def install(s):
     old_message=s['bot_message']
@@ -59,6 +59,9 @@ def install(s):
         except ValueError:return
         if not 0<=slot<len(RELEASES) or now()<dt.datetime.fromisoformat(RELEASES[slot][0]):return
         if b=='open' and slot==0:
+            with s['conn']() as c:
+                tables(c)
+                c.execute('insert or ignore into kinokod_players(user_id,joined_at) values(?,?)',(uid,int(time.time())))
             s['send'](uid,'🎬 '+RELEASES[0][1]+'\\n\\n'+RELEASES[0][2],buttons(0))
             return
         if b=='photo' and slot in (1,5):
@@ -70,6 +73,9 @@ def install(s):
         try:choice=int(b)
         except ValueError:return
         if RELEASES[slot][3] is None or not 0<=choice<3:return
+        with s['conn']() as c:
+            tables(c)
+            c.execute('insert or ignore into kinokod_players(user_id,joined_at) values(?,?)',(uid,int(time.time())))
         record(uid,slot,choice=choice)
         s['send'](uid,'🔍 Версия принята. Кими сохранил твой выбор. Следующая улика появится по расписанию.')
     def message(msg):
@@ -104,7 +110,7 @@ def install(s):
             users=[r['id'] for r in c.execute('select id from users where enabled=1').fetchall()]
             key='kc-'+CAMPAIGN+'-'+str(slot)
             for uid in users:
-                if not eligible_for_conn(c,uid):continue
+                if not eligible_for_conn(c,uid) or not c.execute('select 1 from kinokod_players where user_id=?',(uid,)).fetchone():continue
                 c.execute('insert or ignore into notification_outbox(day,message_key,chat,body,keyboard) values(?,?,?,?,?)',(at[:10],key,json.dumps(uid),s['esc']('🎬 КИНОКОД · '+title+'\n\n'+body),json.dumps(buttons(slot),ensure_ascii=False)))
         s['retry_notifications'](key)
     def eligible_for_conn(c,uid):
@@ -131,17 +137,24 @@ def install(s):
                     c.execute('insert or ignore into notification_outbox(day,message_key,chat,body) values(?,?,?,?)',('2026-10-23',key,json.dumps(uid),s['esc'](text)))
         s['retry_notifications'](key)
     def invitation():
-        key='kc-'+CAMPAIGN+'-invitation'
+        clock=now()
+        day=clock.date().isoformat()
+        if day not in ('2026-10-20','2026-10-21','2026-10-22','2026-10-23'):return
+        # One invitation per person per day; no repeats for those who joined.
+        key='kc-'+CAMPAIGN+'-invite-'+day
         with s['conn']() as c:
             tables(c)
-            if c.execute('select slot from kinokod_posts where slot=-1').fetchone():return
-            c.execute('insert or ignore into kinokod_posts(slot,sent_at) values(-1,?)',(int(time.time()),))
-            audience=[r['id'] for r in c.execute('select id from users where enabled=1').fetchall()]
-            intro='Привет, следователи! 🎬 Сегодня у нас детектив! На съёмочной площадке исторического фильма в Сириусе пропала старинная кинокамера. Без неё не получится снять финал. Здесь будут улики, подозреваемые, фото-задания и настоящая развязка в пятницу. Готовы раскрыть «Кинокод»? Нажмите кнопку, чтобы открыть первое дело. Никаких команд вводить не нужно.'
+            people=[r['id'] for r in c.execute('select id from users where enabled=1').fetchall()]
+            intro=('Привет, следователи! 🎬 Сегодня у нас детектив! На съёмочной площадке '
+                   'исторического фильма в Сириусе пропала старинная кинокамера. '
+                   'Вступай в «Кинокод»: найдём улики, допросим подозреваемых и раскроем '
+                   'тайну в пятницу. Нажми кнопку и начни расследование.')
+            if day!='2026-10-20':
+                intro='🎬 Следователи ещё принимают новичков! Камера не найдена, улики ждут. Присоединяйся к «Кинокоду» до пятничной развязки.'
             keyboard=[[{'text':'🔎 Начать расследование','callback_data':'kc:0:open'}]]
-            for uid in audience:
-                if eligible_for_conn(c,uid):
-                    c.execute('insert or ignore into notification_outbox(day,message_key,chat,body,keyboard) values(?,?,?,?,?)',('2026-10-20',key,json.dumps(uid),s['esc'](intro),json.dumps(keyboard,ensure_ascii=False)))
+            for uid in people:
+                if eligible_for_conn(c,uid) and not c.execute('select 1 from kinokod_players where user_id=?',(uid,)).fetchone():
+                    c.execute('insert or ignore into notification_outbox(day,message_key,chat,body,keyboard) values(?,?,?,?,?)',(day,key,json.dumps(uid),s['esc'](intro),json.dumps(keyboard,ensure_ascii=False)))
         s['retry_notifications'](key)
     def tick():
         clock=now()
