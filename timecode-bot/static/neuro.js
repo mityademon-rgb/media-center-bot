@@ -29,7 +29,6 @@
   home = function() { return previousHome() + (teacherAccess() ? `<section class="section neuro-entry"><span class="tag">МАСТЕРСКАЯ ПРЕПОДАВАТЕЛЯ / КИМИ</span><h2>Есть задача.<br>Найдём нейросеть.</h2><p>Занятие, афиша, программа, отчёт. Кими предложит маршрут и напишет запросы для каждого шага.</p><button class="btn" onclick="openNeuro()">Нейросети →</button></section>` : ''); };
   renderDock = function() {
     previousDock();
-    if (!teacherAccess()) return;
     const dock = document.querySelector('#dock');
     if (!dock) return;
     // Mobile dock has only five visible positions. Never add a seventh,
@@ -56,13 +55,18 @@
       return;
     }
     if (tab !== 'neuro' || !state) return previousRender();
-    if (!teacherAccess()) { tab = 'home'; return previousRender(); }
+    if (!teacherAccess()) {
+      document.body.classList.remove('arcade-playing');
+      renderDock();
+      document.querySelector('#app').innerHTML = '<section class="section neuro"><h1>Нейросети</h1><p>Материалы курса доступны преподавателям TIMECODE. Для входа используется учётная запись преподавателя.</p><button class="btn" onclick="go(\'home\')">На главную</button></section>';
+      return;
+    }
     if (owner !== state.me.id) { owner = state.me.id; messages = []; draft = ''; error = ''; }
     document.body.classList.remove('arcade-playing');
     renderDock(); document.querySelector('#app').innerHTML = view();
     bind();
   };
-  window.openNeuro = function() { if (!teacherAccess()) return; page = 'chat'; go('neuro'); };
+  window.openNeuro = function() { page = 'chat'; go('neuro'); };
   function view() {
     const head = `<header class="neuro-head"><div class="eyebrow">TIMECODE / ПРАКТИКА С КИМИ</div><h1>Нейросети<br><em>для вашей задачи.</em></h1><p>Расскажите, что нужно сделать. Разберём на шаги, выберем инструменты и составим промпты.</p></header><div class="neuro-tabs" role="group" aria-label="Раздел нейросетей">${[['chat','Помощь Кими'],['tools','Кто что умеет'],['terms','Термины']].map(([id,label])=>`<button class="pill ${page===id?'active':''}" data-page="${id}" aria-pressed="${page===id}">${label}</button>`).join('')}</div>`;
     const course = `<aside class="neuro-course"><span>КУРС ДЛЯ ПРЕПОДАВАТЕЛЕЙ</span><h3>Нейросети для преподавателя</h3><p>Четыре встречи: от первого запроса до готового занятия, визуала и отчёта.</p><a href="https://timecode-lab.ru/#/ai" target="_blank" rel="noopener" class="pill">Открыть курс ↗</a><a href="https://timecode-lab.ru/assets/neuro/index.html" target="_blank" rel="noopener" class="pill">Практикум ↗</a></aside>`;
